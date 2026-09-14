@@ -13,7 +13,7 @@ impl DnsCollector {
     /// 从 MOSDNS 获取最近的 DNS 日志，按 IP 过滤，返回域名列表
     pub async fn fetch_recent_domains(&self, client: &reqwest::Client, mac: &str, ip: &str) -> Vec<String> {
         // 1. 拉最近1000条DNS记录（MOSDNS不支持client_ip过滤）
-        let url = format!("{}/api/v1/audit/logs?limit=1000", self.mosdns_url);
+        let url = format!("{}/api/v1/audit/logs?limit=200", self.mosdns_url);
         let resp = match client.get(&url).timeout(std::time::Duration::from_secs(10)).send().await {
             Ok(r) => r,
             Err(e) => {
@@ -35,7 +35,7 @@ impl DnsCollector {
 
         // 2. 过滤：只保留最近 2 分钟 + 匹配设备 IP
         let now = chrono::Local::now();
-        let cutoff = now - chrono::Duration::minutes(2);
+        let cutoff = now - chrono::Duration::minutes(1);
         let mut domains = Vec::new();
 
         for entry in logs {

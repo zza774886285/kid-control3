@@ -73,7 +73,9 @@ impl ActivityDetector {
 
         let has_traffic = bytes_delta > BW_THRESHOLD;
         let has_conns = conn_count >= CONN_THRESHOLD;
-        let signal = has_dns && (has_traffic || has_conns);
+        // 信号判定：DNS 命中即可，不需要同时满足流量/连接数
+        // 因为长连接 App（小红书等）建立连接后不再查 DNS，但有 DNS 就说明在用
+        let signal = has_dns;
 
         let is_silent = bytes_delta < IDLE_TRAFFIC && !has_dns && conn_count < CONN_THRESHOLD;
 
