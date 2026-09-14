@@ -89,7 +89,7 @@ async fn main() {
         .route("/api/control-status", get(api::control::get_control_status))
         .route("/api/settings", get(api::config_api::get_settings).post(api::config_api::post_settings))
         .route("/api/vacation", get(api::config_api::get_vacation).post(api::config_api::set_vacation))
-        .route("/kid-adjust", post(api::control::kid_adjust))
+        .route("/api/kid-adjust", post(api::control::kid_adjust))
         .route("/api/switch", post(api::control::switch_device))
         .route("/api/pause", post(api::control::pause_device))
         .route("/api/points/balance", get(api::points::get_points_balance))
