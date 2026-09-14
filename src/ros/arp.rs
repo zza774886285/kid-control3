@@ -5,11 +5,18 @@ use crate::ros::client::RosClient;
 pub async fn get_mac_ip_map(client: &RosClient) -> HashMap<String, String> {
     let data = match client.get("/ip/arp").await {
         Some(val) => val,
-        None => return HashMap::new(),
+        None => {
+            tracing::error!("get_mac_ip_map: client.get 返回 None");
+            return HashMap::new();
+        }
     };
+    tracing::debug!("get_mac_ip_map: ROS 返回类型={}, 是数组={}", data, data.is_array());
     let arr = match data.as_array() {
         Some(a) => a,
-        None => return HashMap::new(),
+        None => {
+            tracing::error!("get_mac_ip_map: 返回数据不是数组: {}", &data.to_string()[..200.min(data.to_string().len())]);
+            return HashMap::new();
+        }
     };
     let mut map = HashMap::new();
     for entry in arr {
