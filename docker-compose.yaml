@@ -1,16 +1,21 @@
 services:
   kid-control3:
-    build: .
+    image: kirin1989/kid-control3:latest
     container_name: kid-control3
     restart: unless-stopped
     network_mode: host
-    environment:
-      - DB_PATH=/data/kid-control.db
-      - LISTEN_ADDR=0.0.0.0:18089
-      - ROS_HOST=${ROS_HOST}
-      - ROS_PORT=${ROS_PORT:-80}
-      - ROS_USER=${ROS_USER}
-      - ROS_PASS=${ROS_PASS}
-      - MOSDNS_URL=${MOSDNS_URL}
     volumes:
       - ./data:/data
+    environment:
+      # ROS 路由器
+      ROS_HOST: "${ROS_HOST}"
+      ROS_PORT: "${ROS_PORT:-80}"
+      ROS_USER: "${ROS_USER}"
+      ROS_PASS: "${ROS_PASS}"
+      # DNS 采集（MOSDNS）
+      MOSDNS_HOST: "${MOSDNS_HOST}"
+      MOSDNS_PORT: "${MOSDNS_PORT:-9099}"
+      # 监听地址
+      LISTEN_ADDR: "0.0.0.0:18089"
+      # 数据库路径（容器内）
+      DB_PATH: "/data/kid-control.db"
