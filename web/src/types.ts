@@ -1,0 +1,71 @@
+export interface Device {
+  mac: string;
+  name: string;
+  ip: string;
+  online: boolean;
+  daily_active_min: number;
+  daily_video_min: number;
+  daily_game_min: number;
+  limit_sec: number;
+  usage_sec: number;
+}
+
+export interface VideoWindow {
+  id: number;
+  mac: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  activity_type: string;
+  device_name: string;
+}
+
+export interface UserData {
+  devices: Device[];
+  config: Record<string, string>;
+  video_windows: VideoWindow[];
+}
+
+export interface ControlStatus {
+  devices: ControlDevice[];
+  day_type: string;
+}
+
+export interface ControlDevice {
+  mac: string;
+  name: string;
+  ip: string;
+  online: boolean;
+  blocked: boolean;
+  paused: boolean;
+  switch_enabled: boolean | null;
+  usage_sec: number;
+  limit_sec: number;
+}
+
+export interface PointsBalance {
+  user_id: number;
+  username: string;
+  display_name: string;
+  balance: number;
+}
+
+export interface PointRequest {
+  id: number;
+  user_id: number;
+  request_type: string;
+  points: number;
+  status: string;
+  admin_note: string | null;
+  created_at: string;
+}
+
+export interface PointTransaction {
+  id: number;
+  user_id: number;
+  tx_type: string;
+  points: number;
+  balance_after: number;
+  description: string;
+  created_at: string;
+}
