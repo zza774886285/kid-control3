@@ -16,5 +16,7 @@ services:
       MOSDNS_URL: "${MOSDNS_URL:-http://127.0.0.1:9099}"
       # 监听地址
       LISTEN_ADDR: "0.0.0.0:18089"
+      # 时区（必须设，否则时间过滤偏差8小时）
+      TZ: "Asia/Shanghai"
       # 数据库路径（容器内）
       DB_PATH: "/data/kid-control.db"
