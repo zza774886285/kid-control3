@@ -2,6 +2,52 @@ import { useEffect, useState } from "react";
 import { fetchData, fetchControlStatus, kidAdjust, switchDevice, pauseDevice } from "../api";
 import type { Device, ControlDevice } from "../types";
 
+const DEVICE_COLORS: Record<string, string> = {
+  "华为": "#FF6B35",
+  "iPad": "#4ECDC4",
+};
+
+function getDeviceColor(name: string): string {
+  for (const [key, color] of Object.entries(DEVICE_COLORS)) {
+    if (name.includes(key)) return color;
+  }
+  return "#8b5cf6";
+}
+
+function formatTime(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}min`;
+}
+
+interface PillButtonProps {
+  onClick: () => void;
+  color?: string;
+  active?: boolean;
+  children: React.ReactNode;
+}
+
+function PillButton({ onClick, color, active, children }: PillButtonProps) {
+  const baseStyle = "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer border";
+  const activeStyle = active
+    ? "bg-white/10 border-white/20 text-white"
+    : "bg-white/[0.03] border-white/[0.06] text-[color:var(--color-text-secondary)] hover:bg-white/[0.08] hover:border-white/10";
+  const accentStyle = color
+    ? `bg-[${color}]/15 border-[${color}]/30 text-[${color}] hover:bg-[${color}]/25`
+    : "";
+
+  return (
+    <button
+      onClick={onClick}
+      className={`${baseStyle} ${color ? accentStyle : activeStyle}`}
+      style={color ? { backgroundColor: `${color}20`, borderColor: `${color}50`, color } : undefined}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function Dashboard() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [controls, setControls] = useState<ControlDevice[]>([]);
@@ -23,7 +69,7 @@ export default function Dashboard() {
 
   useEffect(() => { reload(); }, []);
 
-  function getCtrl(mac: string) {
+  function getCtrl(mac: string): ControlDevice | undefined {
     return controls.find((c) => c.mac === mac);
   }
 
@@ -42,67 +88,142 @@ export default function Dashboard() {
     reload();
   }
 
-  if (loading) return <div className="text-center py-10 text-gray-400">加载中...</div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="flex items-center gap-3 text-[color:var(--color-text-muted)]">
+          <div className="w-5 h-5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+          <span>加载中...</span>
+        </div>
+      </div>
+    );
+  }
+
+  const dayLabel = dayType === "workday" ? "工作日" : dayType === "weekend" ? "周末" : "假期";
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <h2 className="text-xl font-bold">仪表盘</h2>
-        <span className="text-xs px-2 py-1 rounded bg-gray-700">{dayType === "workday" ? "工作日" : dayType === "weekend" ? "周末" : "假期"}</span>
-        <button onClick={reload} className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600">🔄 刷新</button>
+      {/* 标题栏 */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-bold tracking-tight">仪表盘</h2>
+          <span className="text-xs px-2.5 py-0.5 rounded-full bg-white/[0.06] text-[color:var(--color-text-muted)] border border-white/[0.06]">
+            {dayLabel}
+          </span>
+        </div>
+        <button
+          onClick={reload}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.06] text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-secondary)] hover:bg-white/[0.08] transition-all duration-200 cursor-pointer"
+        >
+          🔄 刷新
+        </button>
       </div>
 
       {/* 设备卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {devices.map((d) => {
           const ctrl = getCtrl(d.mac);
-          const usageMin = Math.round((ctrl?.usage_sec || d.usage_sec || 0) / 60);
-          const limitMin = Math.round((ctrl?.limit_sec || d.limit_sec || 0) / 60);
+          const usageSec = ctrl?.usage_sec ?? d.usage_sec ?? 0;
+          const limitSec = ctrl?.limit_sec ?? d.limit_sec ?? 0;
+          const usageMin = Math.round(usageSec / 60);
+          const limitMin = Math.round(limitSec / 60);
           const pct = limitMin > 0 ? Math.min(100, Math.round((usageMin / limitMin) * 100)) : 0;
+          const accent = getDeviceColor(d.name);
+
+          const progressColor = pct > 80 ? "#ef4444" : pct > 50 ? "#eab308" : accent;
 
           return (
-            <div key={d.mac} className={`rounded-xl p-4 border ${d.online ? "border-green-600 bg-gray-800" : "border-gray-700 bg-gray-800/50"}`}>
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <span className="font-bold text-lg">{d.name}</span>
-                  <span className={`ml-2 text-xs px-2 py-0.5 rounded ${d.online ? "bg-green-600" : "bg-gray-600"}`}>
-                    {d.online ? "在线" : "离线"}
-                  </span>
-                  {ctrl?.blocked && <span className="ml-2 text-xs px-2 py-0.5 rounded bg-red-600">已封禁</span>}
-                  {ctrl?.paused && <span className="ml-2 text-xs px-2 py-0.5 rounded bg-yellow-600">暂停中</span>}
+            <div
+              key={d.mac}
+              className="relative rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.06] transition-all duration-300"
+            >
+              {/* 顶部发光条 */}
+              <div
+                className="absolute top-0 left-6 right-6 h-[1px] rounded-full"
+                style={{ background: `linear-gradient(90deg, transparent, ${accent}40, transparent)` }}
+              />
+
+              {/* 设备名 + 在线状态 */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{
+                      backgroundColor: d.online ? "#22c55e" : "#6b7280",
+                      boxShadow: d.online ? "0 0 8px #22c55e60" : "none",
+                    }}
+                  />
+                  <span className="font-semibold text-[color:var(--color-text-primary)]">{d.name}</span>
+                  {ctrl?.blocked && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
+                      已封禁
+                    </span>
+                  )}
+                  {ctrl?.paused && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      暂停中
+                    </span>
+                  )}
                 </div>
-                <span className="text-sm text-gray-400">{d.mac}</span>
+                <span className="text-[11px] text-[color:var(--color-text-muted)] font-mono">{d.mac}</span>
               </div>
 
-              {/* 使用进度条 */}
-              <div className="mb-3">
-                <div className="flex justify-between text-sm mb-1">
-                  <span>今日 {usageMin} 分钟</span>
-                  <span className="text-gray-400">限额 {limitMin} 分钟 ({pct}%)</span>
+              {/* 使用量进度条 */}
+              <div className="mb-4">
+                <div className="flex items-baseline justify-between mb-2">
+                  <span className="text-sm font-medium text-[color:var(--color-text-primary)]">
+                    {formatTime(usageSec)}
+                  </span>
+                  <span className="text-xs text-[color:var(--color-text-muted)]">
+                    限额 {formatTime(limitSec)} · {pct}%
+                  </span>
                 </div>
-                <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${pct > 80 ? "bg-red-500" : pct > 50 ? "bg-yellow-500" : "bg-green-500"}`}
-                    style={{ width: `${pct}%` }} />
+                <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${pct}%`,
+                      background: `linear-gradient(90deg, ${progressColor}90, ${progressColor})`,
+                      boxShadow: `0 0 8px ${progressColor}40`,
+                    }}
+                  />
                 </div>
               </div>
 
               {/* 今日活动 */}
-              <div className="flex gap-4 text-sm mb-3">
-                {d.daily_video_min > 0 && <span className="text-blue-400">📺 视频 {d.daily_video_min}min</span>}
-                {d.daily_game_min > 0 && <span className="text-orange-400">🎮 游戏 {d.daily_game_min}min</span>}
-                {d.daily_video_min === 0 && d.daily_game_min === 0 && <span className="text-gray-500">暂无活动记录</span>}
+              <div className="flex gap-3 text-xs mb-4">
+                {d.daily_video_min > 0 && (
+                  <span className="text-blue-400">📺 视频 {d.daily_video_min}min</span>
+                )}
+                {d.daily_game_min > 0 && (
+                  <span className="text-orange-400">🎮 游戏 {d.daily_game_min}min</span>
+                )}
+                {d.daily_video_min === 0 && d.daily_game_min === 0 && (
+                  <span className="text-[color:var(--color-text-muted)]">暂无活动</span>
+                )}
               </div>
 
               {/* 操作按钮 */}
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => handleAdjust(d.mac, 1800)} className="text-xs px-3 py-1 rounded bg-green-600 hover:bg-green-500">+30分钟</button>
-                <button onClick={() => handleAdjust(d.mac, -1800)} className="text-xs px-3 py-1 rounded bg-orange-600 hover:bg-orange-500">-30分钟</button>
-                <button onClick={() => handleSwitch(d.mac, !ctrl?.switch_enabled)} className={`text-xs px-3 py-1 rounded ${ctrl?.switch_enabled ? "bg-red-600 hover:bg-red-500" : "bg-blue-600 hover:bg-blue-500"}`}>
-                  {ctrl?.switch_enabled ? "🔌 关闭管控" : "🔌 开启管控"}
-                </button>
-                <button onClick={() => handlePause(d.mac, !ctrl?.paused)} className={`text-xs px-3 py-1 rounded ${ctrl?.paused ? "bg-green-600 hover:bg-green-500" : "bg-yellow-600 hover:bg-yellow-500"}`}>
+                <PillButton onClick={() => handleAdjust(d.mac, 1800)} color="#22c55e">
+                  ➕ 30分钟
+                </PillButton>
+                <PillButton onClick={() => handleAdjust(d.mac, -1800)} color="#f97316">
+                  ➖ 30分钟
+                </PillButton>
+                <PillButton
+                  onClick={() => handleSwitch(d.mac, !ctrl?.switch_enabled)}
+                  color={ctrl?.switch_enabled ? "#ef4444" : "#3b82f6"}
+                  active={!ctrl?.switch_enabled}
+                >
+                  🔌 {ctrl?.switch_enabled ? "关闭管控" : "开启管控"}
+                </PillButton>
+                <PillButton
+                  onClick={() => handlePause(d.mac, !ctrl?.paused)}
+                  color={ctrl?.paused ? "#22c55e" : "#eab308"}
+                >
                   {ctrl?.paused ? "▶️ 恢复" : "⏸️ 暂停"}
-                </button>
+                </PillButton>
               </div>
             </div>
           );

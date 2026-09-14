@@ -328,7 +328,13 @@ impl Database {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             ).ok();
             if let Some((user_id, points, req_type)) = req {
-                let balance = self.get_user_points_balance(user_id);
+                // 直接 SQL 查余额，避免死锁（已持有 conn 锁）
+                let balance: i64 = conn.query_row(
+                    "SELECT COALESCE(SUM(CASE WHEN tx_type='earn' THEN points ELSE -points END), 0)
+                     FROM point_transactions WHERE user_id=?1",
+                    rusqlite::params![user_id],
+                    |row| row.get(0),
+                ).unwrap_or(0);
                 let new_balance = balance + points;
                 conn.execute(
                     "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, request_id)
@@ -341,7 +347,13 @@ impl Database {
 
     pub fn record_exchange(&self, user_id: i64, points: i64, minutes: i64, mac: &str) {
         let conn = self.conn.lock().unwrap();
-        let balance = self.get_user_points_balance(user_id);
+        // 直接 SQL 查余额，避免死锁（已持有 conn 锁）
+        let balance: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(CASE WHEN tx_type='earn' THEN points ELSE -points END), 0)
+             FROM point_transactions WHERE user_id=?1",
+            rusqlite::params![user_id],
+            |row| row.get(0),
+        ).unwrap_or(0);
         let new_balance = balance - points;
         conn.execute(
             "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description)

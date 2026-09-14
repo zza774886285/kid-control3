@@ -1,5 +1,4 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { useState } from "react";
 
 const NAV = [
   { path: "/", label: "首页", icon: "🏠" },
@@ -9,41 +8,50 @@ const NAV = [
 
 export default function Layout() {
   const location = useLocation();
-  const [dark, setDark] = useState(true);
 
   return (
-    <div className={`min-h-screen ${dark ? "bg-gray-900 text-gray-100" : "bg-gray-50 text-gray-900"}`}>
-      {/* 顶栏 */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-gray-700">
-        <h1 className="text-lg font-bold">📱 平板管控</h1>
-        <button onClick={() => setDark(!dark)} className="text-sm px-3 py-1 rounded bg-gray-700 hover:bg-gray-600">
-          {dark ? "☀️ 亮色" : "🌙 暗色"}
-        </button>
+    <div className="min-h-screen flex flex-col">
+      {/* 顶部导航栏 */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-black/30 border-b border-white/[0.06]">
+        <div className="max-w-4xl mx-auto px-4 flex items-center justify-between h-14">
+          {/* Logo */}
+          <div className="flex items-center gap-2">
+            <span className="text-lg">📱</span>
+            <span className="font-semibold text-[color:var(--color-text-primary)] tracking-tight">
+              平板管控
+            </span>
+          </div>
+
+          {/* Tab 导航 */}
+          <nav className="flex items-center gap-1 bg-white/[0.05] rounded-full p-1">
+            {NAV.map((item) => {
+              const active =
+                item.path === "/"
+                  ? location.pathname === "/"
+                  : location.pathname.startsWith(item.path);
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                    active
+                      ? "bg-white/10 text-white shadow-sm"
+                      : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-secondary)]"
+                  }`}
+                >
+                  <span className="text-base">{item.icon}</span>
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
       </header>
 
-      <div className="flex">
-        {/* 侧栏 */}
-        <nav className="w-48 min-h-[calc(100vh-52px)] border-r border-gray-700 p-4 space-y-1">
-          {NAV.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`block px-3 py-2 rounded text-sm ${
-                location.pathname === item.path
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-400 hover:bg-gray-800"
-              }`}
-            >
-              {item.icon} {item.label}
-            </Link>
-          ))}
-        </nav>
-
-        {/* 主内容 */}
-        <main className="flex-1 p-6">
-          <Outlet />
-        </main>
-      </div>
+      {/* 主内容 */}
+      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
+        <Outlet />
+      </main>
     </div>
   );
 }
