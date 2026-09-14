@@ -48,12 +48,27 @@ pub async fn switch_device(
     Json(req): Json<SwitchRequest>,
 ) -> Json<Value> {
     let mac_upper = req.mac.to_uppercase();
+    // 从 ARP 表获取设备 IP
+    let mac_ip = crate::ros::arp::get_mac_ip_map(&state.ros).await;
+    let ip = match mac_ip.get(&mac_upper) {
+        Some(ip) => ip.clone(),
+        None => return Json(json!({"ok": false, "error": "设备离线，无法操作"})),
+    };
+    let block_list = state.config.get("BLOCK_LIST").unwrap_or_else(|| "block-tablet".to_string());
+    if req.enabled {
+        // 恢复：从封禁列表移除
+        fw::unblock_ip(&state.ros, &ip, &block_list).await;
+        ipv6::set_ipv6_filter_disabled(&state.ros, &ip, false).await;
+    } else {
+        // 断网：加入封禁列表
+        fw::block_ip(&state.ros, &ip, &block_list).await;
+        ipv6::set_ipv6_filter_disabled(&state.ros, &ip, true).await;
+    }
+    // 同时更新配置状态
     let key = format!("SWITCH_{}", mac_upper);
     let val = if req.enabled { "true" } else { "false" };
-    match state.config.set(&key, val) {
-        Ok(()) => Json(json!({"ok": true})),
-        Err(e) => Json(json!({"ok": false, "error": e.to_string()})),
-    }
+    let _ = state.config.set(&key, val);
+    Json(json!({"ok": true, "blocked": !req.enabled}))
 }
 
 pub async fn pause_device(

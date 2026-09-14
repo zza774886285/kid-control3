@@ -216,7 +216,7 @@ export default function Dashboard() {
                   color={ctrl?.switch_enabled ? "#ef4444" : "#3b82f6"}
                   active={!ctrl?.switch_enabled}
                 >
-                  🔌 {ctrl?.switch_enabled ? "关闭管控" : "开启管控"}
+                  🔴 {ctrl?.blocked ? "恢复" : "断网"}
                 </PillButton>
                 <PillButton
                   onClick={() => handlePause(d.mac, !ctrl?.paused)}
