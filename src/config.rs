@@ -28,6 +28,10 @@ impl ConfigManager {
             .unwrap_or(default)
     }
 
+    pub fn delete(&self, key: &str) -> Result<()> {
+        self.db.delete_config(key)
+    }
+
     pub fn set(&self, key: &str, value: &str) -> Result<()> {
         self.db.set_config(key, value)
     }

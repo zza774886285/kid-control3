@@ -37,9 +37,17 @@ pub async fn kid_adjust(
         .unwrap_or(0);
 
     let new_val = (current + req.delta).max(0);
-    match state.config.set(&key, &new_val.to_string()) {
-        Ok(()) => Json(json!({"ok": true, "new_limit_sec": new_val})),
-        Err(e) => Json(json!({"ok": false, "error": e.to_string()})),
+    let day_type = state.config.get_day_type();
+    if new_val == 0 {
+        // 值为0时删除 override，回退到基础限额
+        let _ = state.config.delete(&key);
+        let base_limit = state.config.get_device_limit(&mac_upper, &day_type);
+        Json(json!({"ok": true, "new_limit_sec": base_limit}))
+    } else {
+        match state.config.set(&key, &new_val.to_string()) {
+            Ok(()) => Json(json!({"ok": true, "new_limit_sec": new_val})),
+            Err(e) => Json(json!({"ok": false, "error": e.to_string()})),
+        }
     }
 }
 

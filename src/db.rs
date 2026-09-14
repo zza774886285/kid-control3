@@ -126,6 +126,12 @@ impl Database {
         ).ok()
     }
 
+    pub fn delete_config(&self, key: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM config WHERE key = ?1", params![key])?;
+        Ok(())
+    }
+
     pub fn set_config(&self, key: &str, value: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
