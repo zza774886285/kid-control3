@@ -46,11 +46,14 @@ async fn main() {
     let ros_port: u16 = std::env::var("ROS_PORT").unwrap_or_else(|_| "80".to_string()).parse().unwrap_or(80);
     let ros_user = std::env::var("ROS_USER").expect("请设置 ROS_USER");
     let ros_pass = std::env::var("ROS_PASS").expect("请设置 ROS_PASS");
-    let mosdns_url = std::env::var("MOSDNS_URL").unwrap_or_else(|_| {
-        let host = std::env::var("MOSDNS_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-        let port = std::env::var("MOSDNS_PORT").unwrap_or_else(|_| "9099".to_string());
-        format!("http://{}:{}", host, port)
-    });
+    let mosdns_url = {
+        let raw = std::env::var("MOSDNS_URL").unwrap_or_else(|_| {
+            let host = std::env::var("MOSDNS_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+            let port = std::env::var("MOSDNS_PORT").unwrap_or_else(|_| "9099".to_string());
+            format!("http://{}:{}", host, port)
+        });
+        if raw.starts_with("http") { raw } else { format!("http://{}", raw) }
+    };
     let listen_addr = std::env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:18089".to_string());
 
     let db = Arc::new(Database::new(&db_path).expect("数据库初始化失败"));
