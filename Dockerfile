@@ -7,11 +7,8 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
-# 先编译依赖（利用 Docker 缓存）
-RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release && rm -rf src
-# 再编译真正的代码
-COPY src ./src
-RUN touch src/main.rs && cargo build --release
+# 一次性编译（不做 dummy trick，避免缓存问题）
+RUN cargo build --release
 
 # 第二阶段：构建前端
 FROM node:22-alpine AS frontend
@@ -29,13 +26,9 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 
 WORKDIR /app
 
-# 从 builder 复制后端二进制
 COPY --from=builder /app/target/release/kid-control3 .
-
-# 从前端阶段复制构建产物
 COPY --from=frontend /app/web/dist ./web/dist
 
-# 创建数据目录
 RUN mkdir -p /data
 
 ENV DB_PATH=/data/kid-control.db
