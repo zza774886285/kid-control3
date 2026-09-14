@@ -69,11 +69,22 @@ impl ConfigManager {
         (start, end)
     }
 
-    pub fn get_device_limit(&self, _mac: &str, day_type: &str) -> i64 {
+    pub fn get_device_limit(&self, mac: &str, day_type: &str) -> i64 {
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let override_key = format!("LIMIT_OVERRIDE_{}_{}", mac.to_uppercase(), today);
+        // 优先读设备级今日覆盖值（秒）
+        if let Some(override_val) = self.get_i64_opt(&override_key) {
+            if override_val > 0 { return override_val; }
+        }
+        // 否则读工作日/周末/假期限额（分钟）
         let key = format!("{}_LIMIT", day_type.to_uppercase());
-        let default_limit = self.get_i64("DEFAULT_LIMIT", 60);
+        let default_limit = self.get_i64("DEFAULT_LIMIT", 70);
         let limit = self.get_i64(&key, default_limit);
         limit * 60  // 分钟转秒
+    }
+
+    pub fn get_i64_opt(&self, key: &str) -> Option<i64> {
+        self.get(key).and_then(|v| v.parse().ok())
     }
 
     pub fn is_in_time_window(&self, start_str: &str, end_str: &str) -> bool {

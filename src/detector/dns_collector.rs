@@ -12,7 +12,7 @@ impl DnsCollector {
     }
 
     pub async fn fetch_recent_domains(&self, client: &reqwest::Client, mac: &str, ip: &str) -> Vec<String> {
-        let url = format!("{}/api/log/recent?ip={}&limit=100", self.mosdns_url, ip);
+        let url = format!("{}/api/v1/audit/logs?ip={}&limit=100", self.mosdns_url, ip);
         let resp = match client.get(&url).timeout(std::time::Duration::from_secs(5)).send().await {
             Ok(r) => r,
             Err(e) => {

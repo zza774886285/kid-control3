@@ -13,8 +13,7 @@ services:
       ROS_USER: "${ROS_USER}"
       ROS_PASS: "${ROS_PASS}"
       # DNS 采集（MOSDNS）
-      MOSDNS_HOST: "${MOSDNS_HOST}"
-      MOSDNS_PORT: "${MOSDNS_PORT:-9099}"
+      MOSDNS_URL: "${MOSDNS_URL:-http://127.0.0.1:9099}"
       # 监听地址
       LISTEN_ADDR: "0.0.0.0:18089"
       # 数据库路径（容器内）
