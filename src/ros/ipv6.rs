@@ -31,8 +31,14 @@ pub async fn get_ipv6_filter_rules(client: &RosClient, comment_filter: &str) -> 
         .collect()
 }
 
-pub async fn set_ipv6_filter_disabled(client: &RosClient, rule_id: &str, disabled: bool) {
-    let body = serde_json::json!({ "disabled": disabled.to_string() });
-    client.patch(&format!("/ipv6/firewall/filter/{}", rule_id), &body).await;
-    info!("IPv6 规则 {} disabled={}", rule_id, disabled);
+pub async fn set_ipv6_filter_disabled(client: &RosClient, ip: &str, disabled: bool) {
+    // 先按 comment 查找匹配的 IPv6 规则
+    let rules = get_ipv6_filter_rules(client, "tablet-no-fasttrack").await;
+    for rule in rules {
+        // 查找包含目标 IP 的规则（comment 格式: tablet-no-fasttrack-ip）
+        // 或者直接设置所有 tablet 规则
+        let body = serde_json::json!({ "disabled": disabled.to_string() });
+        client.patch(&format!("/ipv6/firewall/filter/{}", rule.id), &body).await;
+        info!("IPv6 规则 {} disabled={}", rule.id, disabled);
+    }
 }
