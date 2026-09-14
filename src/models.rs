@@ -6,6 +6,7 @@ use chrono::{DateTime, Local};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabletConfig {
     pub name: String,
+    #[serde(default)]
     pub mac: String,
     pub ip: String,
     #[serde(default)]
