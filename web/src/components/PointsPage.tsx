@@ -216,7 +216,7 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
         <h2 className="text-xl font-bold tracking-tight" style={{ color: hideAdmin ? "var(--t1)" : "var(--t1)" }}>
           {hideAdmin ? "⭐ 我的积分" : "⭐ 积分系统"}
         </h2>
-        {!hideAdmin && (
+        {balances.filter((b) => b.username !== "admin").length > 1 && (
           <div className="flex items-center gap-1 rounded-full p-1" style={{ background: "rgba(255,255,255,0.05)" }}>
             {balances.filter((b) => b.username !== "admin").map((b) => (
               <button

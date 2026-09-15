@@ -233,6 +233,87 @@ export default function Dashboard() {
                     <span>游戏 {dev.daily_game_min}min</span>
                   </div>
                 )}
+
+                {/* ─── 操作按钮 ─── */}
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <button
+                    onClick={async () => {
+                      await fetch("/api/kid-adjust", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ mac: dev.mac, minutes: 30 }),
+                      });
+                      setTimeout(load, 500);
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer"
+                    style={{
+                      background: "rgba(34,197,94,0.12)",
+                      border: "1px solid rgba(34,197,94,0.3)",
+                      color: "#22c55e",
+                    }}
+                  >
+                    +30min
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await fetch("/api/kid-adjust", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ mac: dev.mac, minutes: -30 }),
+                      });
+                      setTimeout(load, 500);
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer"
+                    style={{
+                      background: "rgba(239,68,68,0.12)",
+                      border: "1px solid rgba(239,68,68,0.3)",
+                      color: "#ef4444",
+                    }}
+                  >
+                    -30min
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const paused = data?.config?.[`PAUSE_${dev.mac.toUpperCase()}`] === "true";
+                      await fetch("/api/pause", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ mac: dev.mac, paused: !paused }),
+                      });
+                      setTimeout(load, 500);
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer"
+                    style={{
+                      background: "rgba(245,158,11,0.12)",
+                      border: "1px solid rgba(245,158,11,0.3)",
+                      color: "#f59e0b",
+                    }}
+                  >
+                    {data?.config?.[`PAUSE_${dev.mac.toUpperCase()}`] === "true" ? "恢复管控" : "大人模式"}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const blocked = data?.config?.[`BLOCKED_${dev.mac.toUpperCase()}`] === "true";
+                      await fetch("/api/switch", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ mac: dev.mac, enabled: blocked }),
+                      });
+                      setTimeout(load, 500);
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer"
+                    style={{
+                      background: data?.config?.[`BLOCKED_${dev.mac.toUpperCase()}`] === "true"
+                        ? "rgba(34,197,94,0.12)" : "rgba(99,102,241,0.12)",
+                      border: `1px solid ${data?.config?.[`BLOCKED_${dev.mac.toUpperCase()}`] === "true"
+                        ? "rgba(34,197,94,0.3)" : "rgba(99,102,241,0.3)"}`,
+                      color: data?.config?.[`BLOCKED_${dev.mac.toUpperCase()}`] === "true"
+                        ? "#22c55e" : "#6366f1",
+                    }}
+                  >
+                    {data?.config?.[`BLOCKED_${dev.mac.toUpperCase()}`] === "true" ? "恢复上网" : "禁止上网"}
+                  </button>
+                </div>
               </div>
             </div>
           );

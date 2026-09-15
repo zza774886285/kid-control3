@@ -32,10 +32,19 @@ export default function RealTimeActivity({ windows, devices }: Props) {
   const HHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
   const deviceActivities = devices.map((dev) => {
-    const recent = windows
-      .filter((w) => w.mac === dev.mac)
+    const devWindows = windows.filter((w) => w.mac === dev.mac);
+
+    // 优先找当前正在进行的窗口
+    let recent = devWindows
       .filter((w) => w.start_time <= HHMM && w.end_time >= HHMM)
       .sort((a, b) => b.start_time.localeCompare(a.start_time))[0];
+
+    // 如果没有当前窗口，找最近一个非空闲窗口（30分钟内）
+    if (!recent) {
+      recent = devWindows
+        .filter((w) => w.activity_type !== "none" && w.activity_type !== "idle")
+        .sort((a, b) => b.end_time.localeCompare(a.end_time))[0];
+    }
 
     const act = recent ? classify(recent.activity_type) : ACTIVITY_MAP.idle;
     const isActive = recent && recent.activity_type !== "none" && recent.activity_type !== "idle";
