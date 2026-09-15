@@ -70,7 +70,7 @@ function formatTimeAgo(dateStr: string): string {
 }
 
 // ── 组件 ──────────────────────────────────────────────────────
-export default function PointsPage() {
+export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean } = {}) {
   // State
   const [balances, setBalances] = useState<PointsBalance[]>([]);
   const [config, setConfig] = useState<PointsConfig>({ tutoring: 60, homework: 30, other: 30 });
@@ -108,12 +108,13 @@ export default function PointsPage() {
     }
   }, [currentUserId]);
 
-  const loadConfig = useCallback(async () => {
+  const loadConfig = useCallback(async (tabletKey?: string) => {
     try {
-      const c = await fetchPointsConfig();
-      setConfig(c);
-    } catch (_) {
-      // config endpoint may not exist yet, use defaults
+      const url = tabletKey ? `/api/points/config?tablet_key=${tabletKey}` : undefined;
+      const resp = url ? await fetch(url).then(r => r.json()) : await fetchPointsConfig();
+      setConfig(resp.config || resp);
+    } catch (e) {
+      console.error("加载积分配置失败:", e);
     }
   }, []);
 
@@ -137,7 +138,10 @@ export default function PointsPage() {
 
   async function reload() {
     setLoading(true);
-    await Promise.all([loadBalances(), loadConfig(), loadPending()]);
+    await loadBalances();
+    // currentRole = username = tablet_key，加载对应积分配置
+    await loadConfig(currentRole);
+    await loadPending();
     if (currentUserId) {
       await loadHistory(currentUserId);
     }
@@ -172,6 +176,7 @@ export default function PointsPage() {
     localStorage.setItem("kc_current_user", String(userId));
     localStorage.setItem("kc_current_role", role);
     setAppliedType(null);
+    loadConfig(role); // role = username = tablet_key
     loadHistory(userId);
   }
 
@@ -209,7 +214,7 @@ export default function PointsPage() {
   }
 
   // ── 子组件 ─────────────────────────────────────────────
-  const isAdmin = currentRole === "admin";
+  const isAdmin = !hideAdmin && currentRole === "admin";
   const myBalance = balances.find((b) => b.user_id === currentUserId);
 
   // ── Loading ──────────────────────────────────────────────
@@ -231,7 +236,7 @@ export default function PointsPage() {
         <h2 className="text-xl font-bold tracking-tight">⭐ 积分系统</h2>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 bg-white/[0.05] rounded-full p-1">
-            {balances.map((b) => (
+            {balances.filter(b => !hideAdmin || b.username !== "admin").map((b) => (
               <button
                 key={b.user_id}
                 onClick={() => switchRole(b.user_id, b.username)}

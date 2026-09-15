@@ -5,6 +5,6 @@ import PointsPage from './components/PointsPage'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <PointsPage />
+    <PointsPage hideAdmin={true} />
   </StrictMode>,
 )
