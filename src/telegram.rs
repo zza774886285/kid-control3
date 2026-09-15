@@ -33,8 +33,14 @@ fn build_client() -> reqwest::Client {
 }
 
 async fn send_message(text: &str, reply_markup: Option<Value>) -> Option<i64> {
-    let token = get_bot_token()?;
-    let chat_id = get_chat_id()?;
+    let token = match get_bot_token() {
+        Some(t) => t,
+        None => { warn!("send_message: TELEGRAM_BOT_TOKEN 未设置"); return None; }
+    };
+    let chat_id = match get_chat_id() {
+        Some(c) => c,
+        None => { warn!("send_message: TELEGRAM_CHAT_ID 未设置"); return None; }
+    };
     let client = build_client();
     let url = format!("https://api.telegram.org/bot{}/sendMessage", token);
 
