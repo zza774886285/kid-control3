@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>kid-control3 — Liquid Glass</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root,[data-theme=dark]{
+  --bg:#050510;--bg2:#0a0a2e;
+  --glass:rgba(255,255,255,.04);--glass-b:rgba(255,255,255,.08);
+  --border:rgba(255,255,255,.06);
+  --glow:rgba(99,102,241,.35);
+  --t1:#e2e8f0;--t2:#94a3b8;--t3:#64748b;
+  --acc:#6366f1;--acc-g:rgba(99,102,241,.35);--acc-g2:rgba(99,102,241,.08);
+  --ok:#22c55e;--err:#ef4444;--err-g:rgba(239,68,68,.25);
+  --hw:#FF6B35;--ip:#4ECDC4;
+  --hw-g:rgba(255,107,53,.12);--ip-g:rgba(78,205,196,.12);
+  --hw-b:rgba(255,107,53,.25);--ip-b:rgba(78,205,196,.25);
+}
+[data-theme=light]{
+  --bg:#e8ecf1;--bg2:#dfe4ec;
+  --glass:rgba(255,255,255,.55);--glass-b:rgba(255,255,255,.7);
+  --border:rgba(255,255,255,.6);
+  --glow:rgba(99,102,241,.2);
+  --t1:#1e293b;--t2:#475569;--t3:#94a3b8;
+  --acc:#6366f1;--acc-g:rgba(99,102,241,.2);--acc-g2:rgba(99,102,241,.06);
+  --ok:#16a34a;--err:#ef4444;--err-g:rgba(239,68,68,.12);
+  --hw:#FF6B35;--ip:#0891b2;
+  --hw-g:rgba(255,107,53,.08);--ip-g:rgba(8,145,178,.08);
+  --hw-b:rgba(255,107,53,.18);--ip-b:rgba(8,145,178,.18);
+}
+body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,var(--bg),var(--bg2));color:var(--t1);min-height:100vh;-webkit-font-smoothing:antialiased;transition:background .5s,color .3s}
+.c{max-width:640px;margin:0 auto;padding:16px}
+
+@keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+@keyframes glow-breathe{0%,100%{opacity:.4}50%{opacity:.8}}
+
+/* ━━ Liquid Glass Card ━━ */
+.glass{
+  background:var(--glass);
+  backdrop-filter:blur(20px) saturate(1.4);
+  -webkit-backdrop-filter:blur(20px) saturate(1.4);
+  border:1px solid var(--glass-b);
+  border-radius:20px;
+  position:relative;
+  overflow:hidden;
+  transition:all .3s;
+}
+.glass::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent);
+  pointer-events:none;
+}
+.glass:hover{border-color:var(--glow);box-shadow:0 8px 32px var(--acc-g2)}
+
+/* ━━ Glow variants ━━ */
+.glow-hw{border-color:var(--hw-b);box-shadow:0 0 24px var(--hw-g),0 4px 24px rgba(0,0,0,.2)}
+.glow-ip{border-color:var(--ip-b);box-shadow:0 0 24px var(--ip-g),0 4px 24px rgba(0,0,0,.2)}
+.glow-err{border-color:var(--err)!important;box-shadow:0 0 24px var(--err-g)!important}
+
+/* ━━ Header ━━ */
+.hdr{display:flex;align-items:center;justify-content:space-between;height:56px;backdrop-filter:blur(24px);background:var(--glass);border-bottom:1px solid var(--glass-b);position:sticky;top:0;z-index:50;padding:0 16px}
+.logo{font-weight:600;font-size:16px}
+.pill{display:flex;gap:3px;background:var(--glass);border:1px solid var(--glass-b);border-radius:999px;padding:3px;backdrop-filter:blur(12px)}
+.pill a{color:var(--t3);text-decoration:none;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:500;transition:all .2s}
+.pill a.on{background:var(--acc-g2);color:var(--acc);box-shadow:0 0 12px var(--acc-g2)}
+.tbtn{width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:var(--glass);border:1px solid var(--glass-b);font-size:16px;transition:all .3s;backdrop-filter:blur(12px)}
+.tbtn:hover{border-color:var(--acc);box-shadow:0 0 15px var(--acc-g)}
+
+/* ━━ Device Card ━━ */
+.dv{padding:20px}
+.dv .shimmer{position:absolute;top:-60px;right:-60px;width:140px;height:140px;border-radius:50%;filter:blur(50px);opacity:.12;pointer-events:none;transition:opacity .3s}
+.dv:hover .shimmer{opacity:.18}
+.dr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;position:relative;z-index:1}
+.di{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:20px;transition:all .3s}
+.di.hw{background:var(--hw-g);border:1px solid var(--hw-b)}
+.di.ip{background:var(--ip-g);border:1px solid var(--ip-b)}
+.dn{font-weight:600;font-size:14px}
+.ds{font-size:12px;display:flex;align-items:center;gap:4px}
+.ds.on{color:var(--ok)}.ds.off{color:var(--t3)}
+.bn{font-size:36px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.06em;line-height:1}
+.bl{font-size:11px;color:var(--t3);margin-top:2px}
+.bt{height:6px;border-radius:99px;background:rgba(255,255,255,.04);overflow:hidden;margin:8px 0}
+.bf{height:100%;border-radius:99px;transition:width .8s cubic-bezier(.4,0,.2,1)}
+.bf.hw{background:linear-gradient(90deg,var(--hw),var(--hw)cc)}
+.bf.ip{background:linear-gradient(90deg,var(--ip),var(--ip)cc)}
+.bf.err{background:linear-gradient(90deg,var(--err),var(--err)cc)}
+.bi{display:flex;justify-content:space-between;font-size:11px;color:var(--t3);margin-bottom:4px}
+.ai{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--t3);margin-top:6px}
+.ai span{background:var(--glass);border:1px solid var(--glass-b);padding:2px 8px;border-radius:99px}
+
+/* ━━ Realtime Activity ━━ */
+.rt-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.rt-card{padding:24px 16px;text-align:center;transition:all .3s;position:relative}
+.rt-card.active{border-color:var(--glow);box-shadow:0 0 24px var(--acc-g2)}
+.rt-card .bg-emoji{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:52px;opacity:.06;pointer-events:none}
+.rt-app{font-size:40px;display:inline-block;position:relative;margin-bottom:10px}
+.rt-app .ring{position:absolute;inset:-10px;border-radius:50%;border:2px solid var(--acc);opacity:.25;animation:glow-breathe 2.5s ease-in-out infinite}
+.rt-name{font-size:13px;font-weight:500;color:var(--t2);margin-bottom:4px}
+.rt-label{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.rt-label.on{color:var(--t1)}.rt-label.off{color:var(--t3)}
+.rt-time{font-size:11px;color:var(--t3);margin-top:4px}
+.rt-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 10px;border-radius:99px;font-weight:500;margin-top:8px}
+.rt-badge.on{background:var(--acc-g2);color:var(--acc)}
+.rt-badge.off{background:rgba(100,116,139,.08);color:var(--t3)}
+
+/* ━━ Weekly Overview - Per Device ━━ */
+.wk-device{margin-bottom:16px}
+.wk-device:last-child{margin-bottom:0}
+.wk-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.wk-dot{width:10px;height:10px;border-radius:4px}
+.wk-head span{font-size:13px;font-weight:600}
+.wk-head .wk-sum{margin-left:auto;font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+.wk-row{display:flex;align-items:center;gap:8px;height:22px}
+.wk-day{width:28px;font-size:11px;color:var(--t3);text-align:center;flex-shrink:0}
+.wk-bar-wrap{flex:1;height:16px;background:rgba(255,255,255,.02);border-radius:5px;overflow:hidden;position:relative}
+.wk-bar{height:100%;border-radius:5px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:10px;font-weight:600;color:rgba(255,255,255,.85);transition:width .6s cubic-bezier(.4,0,.2,1);min-width:0}
+.wk-bar span{opacity:0;transition:opacity .2s}
+.wk-bar-wrap:hover .wk-bar span{opacity:1}
+.wk-limit-line{position:absolute;top:0;bottom:0;width:1px;background:var(--t3);opacity:.35}
+.wk-legend{display:flex;justify-content:flex-end;gap:12px;margin-top:6px;font-size:10px;color:var(--t3)}
+.wk-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:middle;margin-right:3px}
+
+/* ━━ Section ━━ */
+.sec{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--t2);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%}
+.dot.p{animation:pulse 2s ease-in-out infinite}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div style="display:flex;align-items:center;gap:8px"><span>📱</span><span class="logo">平板管控</span></div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <div class="pill"><a class="on" href="#">🏠 首页</a><a href="#">⭐ 积分</a><a href="#">⚙️ 设置</a></div>
+    <button class="tbtn" onclick="toggle()">☀️</button>
+  </div>
+</div>
+
+<div class="c" style="padding-top:20px">
+
+  <div style="display:flex;justify-content:space-between;margin-bottom:18px">
+    <div><div style="font-size:20px;font-weight:700">管控仪表盘</div><div style="font-size:12px;color:var(--t3);margin-top:2px">2026年9月15日 · 19:42</div></div>
+    <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--t3)"><div class="dot p" style="background:var(--ok)"></div>系统运行中</div>
+  </div>
+
+  <!-- 设备卡片 -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+    <div class="glass dv glow-hw"><div class="shimmer" style="background:var(--hw)"></div>
+      <div class="dr">
+        <div style="display:flex;align-items:center;gap:10px"><div class="di hw">📱</div><div><div class="dn">华为平板</div><div class="ds on">● 在线</div></div></div>
+        <div style="text-align:right"><div class="bn" style="color:var(--hw)">50</div><div class="bl">剩余分钟</div></div>
+      </div>
+      <div class="bi"><span>已用 100min</span><span>限额 150min</span></div>
+      <div class="bt"><div class="bf hw" style="width:67%"></div></div>
+      <div class="ai"><span>📺 视频 45m</span><span>🎮 游戏 12m</span></div>
+    </div>
+    <div class="glass dv"><div class="shimmer" style="background:var(--ip)"></div>
+      <div class="dr">
+        <div style="display:flex;align-items:center;gap:10px"><div class="di ip">📲</div><div><div class="dn">iPad</div><div class="ds on">● 在线</div></div></div>
+        <div style="text-align:right"><div class="bn" style="color:var(--ip)">120</div><div class="bl">剩余分钟</div></div>
+      </div>
+      <div class="bi"><span>已用 30min</span><span>限额 150min</span></div>
+      <div class="bt"><div class="bf ip" style="width:20%"></div></div>
+    </div>
+  </div>
+
+  <!-- 实时活动 -->
+  <div class="glass" style="margin-bottom:16px;padding:18px 20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="sec" style="margin:0"><div class="dot p" style="background:var(--acc)"></div>实时活动</div>
+      <span style="font-size:11px;color:var(--t3);font-variant-numeric:tabular-nums">19:42</span>
+    </div>
+    <div class="rt-grid">
+      <div class="glass rt-card active">
+        <div class="bg-emoji">📕</div>
+        <div class="rt-app"><div class="ring"></div>📕</div>
+        <div class="rt-name">华为平板</div>
+        <div class="rt-label on">小红书</div>
+        <div class="rt-time">已浏览 12分钟</div>
+        <div class="rt-badge on">● 使用中</div>
+      </div>
+      <div class="glass rt-card">
+        <div class="bg-emoji">😴</div>
+        <div class="rt-app">😴</div>
+        <div class="rt-name">iPad</div>
+        <div class="rt-label off">空闲</div>
+        <div class="rt-time">无活动</div>
+        <div class="rt-badge off">○ 空闲</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本周使用概览 — 按设备区分 -->
+  <div class="glass" style="padding:18px 20px">
+    <div class="sec">📊 本周使用概览</div>
+
+    <!-- 华为平板 -->
+    <div class="wk-device">
+      <div class="wk-head">
+        <div class="wk-dot" style="background:var(--hw)"></div>
+        <span style="color:var(--hw)">华为平板</span>
+        <div class="wk-sum">合计 580min / 限额1050min</div>
+      </div>
+      <div class="wk-row"><div class="wk-day">一</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:80%;background:linear-gradient(90deg,var(--hw),var(--hw)bb)"><span>120m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day">二</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:100%;background:linear-gradient(90deg,var(--hw),var(--err))"><span>150m ⚠️</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day">三</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:53%;background:linear-gradient(90deg,var(--hw),var(--hw)bb)"><span>80m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day">四</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:67%;background:linear-gradient(90deg,var(--hw),var(--hw)bb)"><span>100m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day" style="font-weight:700">五</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:67%;background:linear-gradient(90deg,#22c55e,var(--hw))"><span>100m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day">六</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:40%;background:linear-gradient(90deg,var(--hw),var(--hw)bb)"><span>60m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day">日</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:0%"></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+    </div>
+
+    <!-- iPad -->
+    <div class="wk-device">
+      <div class="wk-head">
+        <div class="wk-dot" style="background:var(--ip)"></div>
+        <span style="color:var(--ip)">iPad</span>
+        <div class="wk-sum">合计 210min / 限额1050min</div>
+      </div>
+      <div class="wk-row"><div class="wk-day">一</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:27%;background:linear-gradient(90deg,var(--ip),var(--ip)bb)"><span>40m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day">二</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:33%;background:linear-gradient(90deg,var(--ip),var(--ip)bb)"><span>50m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day">三</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:20%;background:linear-gradient(90deg,var(--ip),var(--ip)bb)"><span>30m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day">四</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:20%;background:linear-gradient(90deg,var(--ip),var(--ip)bb)"><span>30m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day" style="font-weight:700">五</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:20%;background:linear-gradient(90deg,#22c55e,var(--ip))"><span>30m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day">六</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:17%;background:linear-gradient(90deg,var(--ip),var(--ip)bb)"><span>25m</span></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+      <div class="wk-row"><div class="wk-day">日</div><div class="wk-bar-wrap"><div class="wk-bar" style="width:0%"></div><div class="wk-limit-line" style="left:100%"></div></div></div>
+    </div>
+
+    <div class="wk-legend">
+      <span><i style="background:var(--hw)"></i>华为</span>
+      <span><i style="background:var(--ip)"></i>iPad</span>
+      <span><i style="background:var(--err)"></i>超限</span>
+      <span><i style="width:2px;height:10px;border-radius:0;background:var(--t3)"></i>150min</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggle(){const h=document.documentElement,n=h.getAttribute('data-theme')==='dark'?'light':'dark';h.setAttribute('data-theme',n);document.querySelector('.tbtn').textContent=n==='dark'?'☀️':'🌙';}
+</script>
+</body>
+</html>

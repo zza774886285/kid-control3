@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>kid-control3 — Warm Dark</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f12;
+      --bg-card: rgba(255,255,255,0.035);
+      --bg-card-hover: rgba(255,255,255,0.06);
+      --border: rgba(255,255,255,0.06);
+      --text-primary: #f0ece4;
+      --text-secondary: #a09888;
+      --text-muted: #6b6158;
+      --accent-warm: #f59e0b;
+      --accent-rose: #f43f5e;
+      --accent-green: #34d399;
+      --accent-blue: #60a5fa;
+      --accent-purple: #a78bfa;
+      --radius: 16px;
+      --radius-sm: 10px;
+      --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'IBM Plex Mono', monospace;
+    }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg);
+      background-image: 
+        radial-gradient(ellipse at 20% 0%, rgba(245,158,11,0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 100%, rgba(244,63,94,0.04) 0%, transparent 50%);
+      color: var(--text-primary);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .layout { display: flex; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 200px;
+      background: rgba(255,255,255,0.02);
+      border-right: 1px solid var(--border);
+      padding: 28px 16px;
+    }
+    .logo {
+      font-size: 15px;
+      font-weight: 700;
+      padding: 8px 14px;
+      margin-bottom: 28px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent-warm);
+      box-shadow: 0 0 12px rgba(245,158,11,0.5);
+    }
+    .nav {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .nav a {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .nav a:hover { background: rgba(255,255,255,0.04); color: var(--text-secondary); }
+    .nav a.active { background: rgba(245,158,11,0.1); color: var(--accent-warm); }
+
+    .main { flex: 1; padding: 36px 44px; max-width: 920px; }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+    }
+    .header-left { display: flex; align-items: center; gap: 14px; }
+    .header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+    .badge {
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .refresh-btn {
+      font-size: 12px;
+      padding: 7px 16px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-family: var(--font-body);
+      transition: all 0.2s;
+    }
+    .refresh-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-secondary); }
+
+    /* Device Cards — warm rounded, border 联动 */
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .device-card {
+      background: var(--bg-card);
+      border-radius: var(--radius);
+      padding: 22px;
+      border: 1px solid var(--border);
+      transition: all 0.25s;
+      position: relative;
+      overflow: hidden;
+    }
+    .device-card:hover { background: var(--bg-card-hover); transform: translateY(-1px); }
+    /* 正常在线 — 温暖金色边框 */
+    .device-card.online:not(.blocked) {
+      border-color: rgba(245,158,11,0.2);
+    }
+    .device-card.online:not(.blocked)::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 10%, rgba(245,158,11,0.5) 50%, transparent 90%);
+    }
+    /* 断网 — 红色边框 + 微光 */
+    .device-card.blocked {
+      border-color: rgba(244,63,94,0.25);
+      box-shadow: 0 0 20px rgba(244,63,94,0.05);
+    }
+    .device-card.blocked::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 10%, rgba(244,63,94,0.6) 50%, transparent 90%);
+    }
+    /* 离线 */
+    .device-card.offline { opacity: 0.5; }
+
+    .card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .card-left { display: flex; align-items: center; gap: 10px; }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+    }
+    .dot.on { background: var(--accent-green); box-shadow: 0 0 10px rgba(52,211,153,0.5); }
+    .dot.off { background: var(--text-muted); }
+    .dev-name { font-size: 15px; font-weight: 600; }
+    .status-badge {
+      font-size: 10px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+    .status-ok { background: rgba(52,211,153,0.12); color: #6ee7b7; }
+    .status-blocked { background: rgba(244,63,94,0.12); color: #fda4af; }
+    .mac { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+    /* Usage */
+    .usage { margin-bottom: 14px; }
+    .usage-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .usage-big { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .usage-meta { font-size: 12px; color: var(--text-muted); }
+    .bar { height: 5px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
+    .bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.5s cubic-bezier(0.16,1,0.3,1);
+    }
+
+    /* Activity */
+    .chips { display: flex; gap: 6px; margin-bottom: 16px; }
+    .chip {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 10px;
+      font-weight: 500;
+    }
+    .chip-video { background: rgba(96,165,250,0.1); color: #93c5fd; }
+    .chip-game { background: rgba(245,158,11,0.1); color: #fcd34d; }
+    .chip-none { background: rgba(255,255,255,0.03); color: var(--text-muted); }
+
+    /* Actions */
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill {
+      font-size: 11px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-family: var(--font-body);
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .pill:hover { background: rgba(255,255,255,0.06); }
+    .pill-red { border-color: rgba(244,63,94,0.25); color: #fda4af; }
+    .pill-red:hover { background: rgba(244,63,94,0.08); }
+    .pill-green { border-color: rgba(52,211,153,0.25); color: #6ee7b7; }
+    .pill-green:hover { background: rgba(52,211,153,0.08); }
+
+    /* ====== 本周使用概览 ====== */
+    .overview {
+      background: var(--bg-card);
+      border-radius: var(--radius);
+      padding: 22px;
+      border: 1px solid var(--border);
+    }
+    .overview-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .overview-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    .stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+    .stat-big { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; line-height: 1; }
+    .stat-unit { font-size: 13px; font-weight: 400; color: var(--text-muted); margin-left: 2px; }
+    .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+
+    /* 迷你柱状图 — 圆角 */
+    .chart { display: flex; gap: 4px; align-items: flex-end; height: 52px; }
+    .day-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; height: 100%; justify-content: flex-end; }
+    .bar-group { display: flex; gap: 2px; width: 100%; align-items: flex-end; }
+    .bar-item {
+      flex: 1;
+      border-radius: 3px 3px 1px 1px;
+      min-height: 2px;
+      transition: height 0.4s cubic-bezier(0.16,1,0.3,1);
+    }
+    .day-label { font-size: 9px; color: var(--text-muted); margin-top: 6px; font-family: var(--font-mono); }
+
+    /* 占比条 */
+    .ratio { display: flex; flex-direction: column; gap: 8px; }
+    .ratio-row { display: flex; align-items: center; gap: 8px; }
+    .ratio-name { font-size: 11px; color: var(--text-secondary); width: 36px; }
+    .ratio-track { flex: 1; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; }
+    .ratio-fill { height: 100%; border-radius: 3px; }
+    .ratio-val { font-size: 11px; color: var(--text-muted); width: 44px; text-align: right; font-family: var(--font-mono); }
+
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .main { padding: 20px 16px; }
+      .cards { grid-template-columns: 1fr; }
+      .overview-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="logo">
+        <div class="logo-dot"></div>
+        kid-control
+      </div>
+      <div class="nav">
+        <a href="#" class="active">📊 仪表盘</a>
+        <a href="#">⭐ 积分</a>
+        <a href="#">⚙️ 设置</a>
+      </div>
+    </nav>
+
+    <main class="main">
+      <div class="header">
+        <div class="header-left">
+          <h1>仪表盘</h1>
+          <span class="badge">工作日</span>
+        </div>
+        <button class="refresh-btn">🔄 刷新</button>
+      </div>
+
+      <div class="cards">
+        <!-- 华为 — 在线 -->
+        <div class="device-card online">
+          <div class="card-top">
+            <div class="card-left">
+              <div class="dot on"></div>
+              <span class="dev-name">华为</span>
+              <span class="status-badge status-ok">正常</span>
+            </div>
+            <span class="mac">A0:DE:0F</span>
+          </div>
+          <div class="usage">
+            <div class="usage-row">
+              <span class="usage-big">1h 23m</span>
+              <span class="usage-meta">限额 2h · 69%</span>
+            </div>
+            <div class="bar">
+              <div class="bar-fill" style="width:69%;background:var(--accent-warm);box-shadow:0 0 8px rgba(245,158,11,0.4)"></div>
+            </div>
+          </div>
+          <div class="chips">
+            <span class="chip chip-video">📺 视频 45min</span>
+            <span class="chip chip-game">🎮 游戏 12min</span>
+          </div>
+          <div class="actions">
+            <button class="pill">➕ 30min</button>
+            <button class="pill">➖ 30min</button>
+            <button class="pill pill-red">🔴 断网</button>
+            <button class="pill">⏸️ 暂停</button>
+          </div>
+        </div>
+
+        <!-- iPad — 断网 -->
+        <div class="device-card blocked">
+          <div class="card-top">
+            <div class="card-left">
+              <div class="dot off"></div>
+              <span class="dev-name">iPad</span>
+              <span class="status-badge status-blocked">已封禁</span>
+            </div>
+            <span class="mac">80:5F:C5</span>
+          </div>
+          <div class="usage">
+            <div class="usage-row">
+              <span class="usage-big" style="color:var(--accent-rose)">2h 05m</span>
+              <span class="usage-meta">限额 1h 30m · <span style="color:var(--accent-rose)">超限</span></span>
+            </div>
+            <div class="bar">
+              <div class="bar-fill" style="width:100%;background:var(--accent-rose);box-shadow:0 0 8px rgba(244,63,94,0.4)"></div>
+            </div>
+          </div>
+          <div class="chips">
+            <span class="chip chip-video">📺 视频 1h 30min</span>
+          </div>
+          <div class="actions">
+            <button class="pill">➕ 30min</button>
+            <button class="pill">➖ 30min</button>
+            <button class="pill pill-green">🟢 恢复</button>
+            <button class="pill">⏸️ 暂停</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 本周使用概览 -->
+      <div class="overview">
+        <div class="overview-title">📋 本周使用概览</div>
+        <div class="overview-grid">
+          <div>
+            <div class="stat-label">今日剩余</div>
+            <div class="stat-big" style="color:var(--accent-warm)">37<span class="stat-unit">min</span></div>
+            <div class="stat-sub">两台设备合计</div>
+          </div>
+          <div>
+            <div class="stat-label" style="margin-bottom:10px">本周趋势</div>
+            <div class="chart">
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item" style="height:40%;background:var(--accent-warm);opacity:0.7"></div>
+                  <div class="bar-item" style="height:25%;background:var(--accent-blue);opacity:0.7"></div>
+                </div>
+                <div class="day-label">一</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item" style="height:55%;background:var(--accent-warm);opacity:0.7"></div>
+                  <div class="bar-item" style="height:50%;background:var(--accent-blue);opacity:0.7"></div>
+                </div>
+                <div class="day-label">二</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item" style="height:30%;background:var(--accent-warm);opacity:0.7"></div>
+                  <div class="bar-item" style="height:75%;background:var(--accent-rose);opacity:0.8"></div>
+                </div>
+                <div class="day-label">三</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item" style="height:65%;background:var(--accent-warm);opacity:0.7"></div>
+                  <div class="bar-item" style="height:35%;background:var(--accent-blue);opacity:0.7"></div>
+                </div>
+                <div class="day-label">四</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item" style="height:45%;background:var(--accent-warm);opacity:0.7"></div>
+                  <div class="bar-item" style="height:20%;background:var(--accent-blue);opacity:0.7"></div>
+                </div>
+                <div class="day-label">五</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item" style="height:80%;background:var(--accent-rose);opacity:0.8"></div>
+                  <div class="bar-item" style="height:60%;background:var(--accent-rose);opacity:0.8"></div>
+                </div>
+                <div class="day-label">六</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item" style="height:35%;background:var(--accent-warm);opacity:0.7"></div>
+                  <div class="bar-item" style="height:90%;background:var(--accent-rose);opacity:0.5"></div>
+                </div>
+                <div class="day-label">日</div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="stat-label" style="margin-bottom:10px">今日使用占比</div>
+            <div class="ratio">
+              <div class="ratio-row">
+                <span class="ratio-name" style="color:var(--accent-warm)">华为</span>
+                <div class="ratio-track">
+                  <div class="ratio-fill" style="width:40%;background:var(--accent-warm)"></div>
+                </div>
+                <span class="ratio-val">1h 23m</span>
+              </div>
+              <div class="ratio-row">
+                <span class="ratio-name" style="color:var(--accent-rose)">iPad</span>
+                <div class="ratio-track">
+                  <div class="ratio-fill" style="width:60%;background:var(--accent-rose)"></div>
+                </div>
+                <span class="ratio-val" style="color:#fda4af">2h 05m</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

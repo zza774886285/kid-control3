@@ -18,40 +18,27 @@ import type {
 
 // ── 常量 ──────────────────────────────────────────────────────
 const REQUEST_TYPES: { key: string; label: string; icon: string; color: string }[] = [
-  { key: "tutoring", label: "补课", icon: "📚", color: "#8b5cf6" },
+  { key: "tutoring", label: "补课", icon: "📚", color: "#22c55e" },
   { key: "homework", label: "作业", icon: "📝", color: "#3b82f6" },
-  { key: "other", label: "其他", icon: "🎯", color: "#14b8a6" },
+  { key: "other", label: "其他", icon: "🎯", color: "#f59e0b" },
 ];
 
-const EXCHANGE_OPTIONS: { points: number; label: string; color: string }[] = [
-  { points: 30, label: "兑换 30min", color: "#f59e0b" },
-  { points: 60, label: "兑换 60min", color: "#f97316" },
+const EXCHANGE_OPTIONS: { points: number; label: string; icon: string; color: string }[] = [
+  { points: 30, label: "兑换 30min", icon: "🎁", color: "#f59e0b" },
+  { points: 60, label: "兑换 60min", icon: "🏆", color: "#f97316" },
 ];
 
-const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
-  pending: { label: "待审批", color: "#eab308", bg: "bg-amber-500/20" },
-  approved: { label: "已通过", color: "#22c55e", bg: "bg-emerald-500/20" },
-  rejected: { label: "已拒绝", color: "#ef4444", bg: "bg-red-500/20" },
+const STATUS_MAP: Record<string, { label: string; color: string }> = {
+  pending:  { label: "待审批", color: "#eab308" },
+  approved: { label: "已通过", color: "#22c55e" },
+  rejected: { label: "已拒绝", color: "#ef4444" },
 };
 
-const REQUEST_TYPE_LABELS: Record<string, string> = {
-  tutoring: "补课",
-  homework: "作业",
-  other: "其他",
-};
+const REQUEST_TYPE_LABELS: Record<string, string> = { tutoring: "补课", homework: "作业", other: "其他" };
+const REQUEST_TYPE_COLORS: Record<string, string> = { tutoring: "#8b5cf6", homework: "#3b82f6", other: "#14b8a6" };
 
-const REQUEST_TYPE_COLORS: Record<string, string> = {
-  tutoring: "#8b5cf6",
-  homework: "#3b82f6",
-  other: "#14b8a6",
-};
+const KID_COLORS: Record<string, string> = { lisa: "#8b5cf6", huawei: "#f97316" };
 
-const KID_COLORS: Record<string, string> = {
-  lisa: "#8b5cf6",
-  huawei: "#f97316",
-};
-
-// ── 工具函数 ──────────────────────────────────────────────────
 function getUserColor(username: string): string {
   for (const [key, color] of Object.entries(KID_COLORS)) {
     if (username.includes(key)) return color;
@@ -70,9 +57,8 @@ function formatTimeAgo(dateStr: string): string {
   return `${Math.floor(diff / 86400)}天前`;
 }
 
-// ── 组件 ──────────────────────────────────────────────────────
+// ── 主组件 ──────────────────────────────────────────────────────
 export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean } = {}) {
-  // State
   const [balances, setBalances] = useState<PointsBalance[]>([]);
   const [config, setConfig] = useState<PointsConfig>({ tutoring: 60, homework: 30, other: 30 });
   const [pendingRequests, setPendingRequests] = useState<PointRequest[]>([]);
@@ -81,7 +67,6 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
   const [appliedType, setAppliedType] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
-  // Current user: read from localStorage, default to first kid
   const [currentUserId, setCurrentUserId] = useState<number>(() => {
     const saved = localStorage.getItem("kc_current_user");
     return saved ? Number(saved) : 0;
@@ -95,7 +80,6 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
     try {
       const data = await fetchPointsBalance();
       setBalances(data);
-      // Auto-select first kid if no user selected
       if (currentUserId === 0 && data.length > 0) {
         const firstKid = data.find((b) => b.username !== "admin");
         if (firstKid) {
@@ -141,21 +125,14 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
   async function reload() {
     setLoading(true);
     await loadBalances();
-    // currentRole = username = tablet_key，加载对应积分配置
     await loadConfig(currentRole);
     await loadPending();
-    if (currentUserId) {
-      await loadHistory(currentUserId);
-    }
+    if (currentUserId) await loadHistory(currentUserId);
     setLoading(false);
   }
 
-  useEffect(() => {
-    reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { reload(); }, []);
 
-  // 每10秒自动刷新，解决 Telegram 审批后页面不更新的问题
   useEffect(() => {
     const timer = setInterval(() => {
       loadBalances();
@@ -166,23 +143,19 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
   }, [currentUserId, loadBalances, loadPending, loadHistory]);
 
   useEffect(() => {
-    if (currentUserId && currentUserId > 0) {
-      loadHistory(currentUserId);
-    }
+    if (currentUserId && currentUserId > 0) loadHistory(currentUserId);
   }, [currentUserId, loadHistory]);
 
-  // ── 切换角色 ─────────────────────────────────────────────
   function switchRole(userId: number, role: string) {
     setCurrentUserId(userId);
     setCurrentRole(role);
     localStorage.setItem("kc_current_user", String(userId));
     localStorage.setItem("kc_current_role", role);
     setAppliedType(null);
-    loadConfig(role); // role = username = tablet_key
+    loadConfig(role);
     loadHistory(userId);
   }
 
-  // ── 操作 ─────────────────────────────────────────────────
   async function handleApply(requestType: string) {
     try {
       const res = await applyPoints(currentUserId, requestType);
@@ -213,24 +186,23 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
     try {
       await approveRequest(requestId, action);
       loadPending();
-      if (action === "approve") {
-        loadBalances();
-      }
+      if (action === "approve") loadBalances();
     } catch (e) {
       console.error("审批失败:", e);
     }
   }
 
-  // ── 子组件 ─────────────────────────────────────────────
   const isAdmin = !hideAdmin && currentRole === "admin";
   const myBalance = balances.find((b) => b.user_id === currentUserId);
 
-  // ── Loading ──────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="flex items-center gap-3 text-[color:var(--color-text-muted)]">
-          <div className="w-5 h-5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+        <div className="flex items-center gap-3" style={{ color: "var(--t3)" }}>
+          <div
+            className="w-5 h-5 border-2 rounded-full animate-spin"
+            style={{ borderColor: "rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }}
+          />
           <span>加载中...</span>
         </div>
       </div>
@@ -241,24 +213,27 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
     <div className="space-y-6">
       {/* ─── 标题栏 + 角色切换 ─── */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold tracking-tight">⭐ 积分系统</h2>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 bg-white/[0.05] rounded-full p-1">
-            {balances.filter(b => !hideAdmin || b.username !== "admin").map((b) => (
+        <h2 className="text-xl font-bold tracking-tight" style={{ color: hideAdmin ? "var(--t1)" : "var(--t1)" }}>
+          {hideAdmin ? "⭐ 我的积分" : "⭐ 积分系统"}
+        </h2>
+        {!hideAdmin && (
+          <div className="flex items-center gap-1 rounded-full p-1" style={{ background: "rgba(255,255,255,0.05)" }}>
+            {balances.filter((b) => b.username !== "admin").map((b) => (
               <button
                 key={b.user_id}
                 onClick={() => switchRole(b.user_id, b.username)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer ${
+                className="px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer"
+                style={
                   currentUserId === b.user_id
-                    ? "bg-white/10 text-white"
-                    : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-secondary)]"
-                }`}
+                    ? { background: "rgba(255,255,255,0.1)", color: "var(--t1)" }
+                    : { color: "var(--t3)" }
+                }
               >
                 {b.display_name}
               </button>
             ))}
           </div>
-        </div>
+        )}
       </div>
 
       {/* ═══════════════ 孩子视图 ═══════════════ */}
@@ -279,7 +254,6 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
       {isAdmin && (
         <AdminView
           balances={balances}
-          config={config}
           pendingRequests={pendingRequests}
           balancesMap={Object.fromEntries(balances.map((b) => [b.user_id, b]))}
           onApprove={handleApprove}
@@ -291,7 +265,7 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 孩子视图
+// 孩子视图 — 儿童友好风格 🌈
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 interface ChildViewProps {
   balance: PointsBalance;
@@ -307,63 +281,99 @@ interface ChildViewProps {
 function ChildView({ balance, config, history, pendingRequests, appliedType, applyError, onApply, onExchange }: ChildViewProps) {
   const pointsMap: Record<string, number> = { tutoring: config.tutoring, homework: config.homework, other: config.other };
 
+  // 儿童风申请按钮颜色
+  const kidBtnColors: Record<string, { bg: string; border: string; text: string }> = {
+    tutoring: { bg: "linear-gradient(135deg, #86efac, #22c55e)", border: "#16a34a", text: "#fff" },
+    homework: { bg: "linear-gradient(135deg, #93c5fd, #3b82f6)", border: "#2563eb", text: "#fff" },
+    other:    { bg: "linear-gradient(135deg, #fcd34d, #f59e0b)", border: "#d97706", text: "#fff" },
+  };
+
   return (
     <div className="space-y-6">
-      {/* ─── 积分余额大数字 ─── */}
-      <div className="relative rounded-2xl p-6 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06] text-center overflow-hidden">
-        <div className="absolute top-0 left-6 right-6 h-[1px] rounded-full bg-gradient-to-r from-transparent via-purple-500/40 to-transparent" />
-        <div className="text-sm text-[color:var(--color-text-muted)] mb-2">我的积分</div>
-        <div className="text-5xl font-mono font-bold text-purple-400 tracking-tight" style={{ textShadow: "0 0 30px #8b5cf640" }}>
-          {balance.balance}
-        </div>
-        <div className="text-xs text-[color:var(--color-text-muted)] mt-2">
-          1分 = 1分钟屏幕时间
+      {/* ─── 积分余额大数字（可爱风） ─── */}
+      <div
+        className="relative rounded-3xl p-8 text-center overflow-hidden"
+        style={{
+          background: "linear-gradient(135deg, #fef3c7, #fde68a, #fcd34d)",
+          boxShadow: "0 8px 32px rgba(245,158,11,0.3)",
+        }}
+      >
+        {/* 装饰星星 */}
+        <div className="absolute top-3 left-4 text-xl" style={{ animation: "float 3s ease-in-out infinite", opacity: 0.7 }}>⭐</div>
+        <div className="absolute top-5 right-6 text-lg" style={{ animation: "float 3s ease-in-out infinite 0.5s", opacity: 0.6 }}>✨</div>
+        <div className="absolute bottom-4 left-8 text-sm" style={{ animation: "float 3s ease-in-out infinite 1s", opacity: 0.5 }}>🌟</div>
+
+        <div className="relative z-10">
+          <div className="text-sm mb-2" style={{ color: "#92400e" }}>👑 我的积分</div>
+          <div
+            className="text-6xl font-mono font-bold tracking-tight"
+            style={{ color: "#92400e", textShadow: "0 2px 8px rgba(245,158,11,0.4)" }}
+          >
+            {balance.balance}
+          </div>
+          <div className="text-xs mt-2" style={{ color: "#a16207" }}>
+            ⭐ 1分 = 1分钟屏幕时间
+          </div>
         </div>
       </div>
 
-      {/* ─── 申请积分 ─── */}
-      <div className="rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06]">
-        <h3 className="font-semibold mb-4 text-[color:var(--color-text-primary)]">📋 申请积分</h3>
-        <div className="grid grid-cols-3 gap-3">
+      {/* ─── 申请积分（彩色大按钮） ─── */}
+      <div
+        className="rounded-3xl p-6"
+        style={{ background: "rgba(255,255,255,0.7)", boxShadow: "0 4px 20px rgba(0,0,0,0.05)" }}
+      >
+        <h3 className="font-bold text-lg mb-4 text-center" style={{ color: "#1e293b" }}>📋 申请积分</h3>
+        <div className="grid grid-cols-3 gap-4">
           {REQUEST_TYPES.map((rt) => {
             const pts = pointsMap[rt.key] || 0;
             const justApplied = appliedType === rt.key;
+            const colors = kidBtnColors[rt.key];
             return (
               <button
                 key={rt.key}
                 onClick={() => onApply(rt.key)}
                 disabled={justApplied}
-                className="relative flex flex-col items-center gap-2 p-4 rounded-xl border transition-all duration-200 cursor-pointer hover:scale-[1.02]"
+                className="relative flex flex-col items-center gap-2 p-5 rounded-2xl border-2 transition-all duration-300 cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-60"
                 style={{
-                  backgroundColor: justApplied ? `${rt.color}25` : `${rt.color}10`,
-                  borderColor: justApplied ? `${rt.color}60` : `${rt.color}30`,
+                  background: justApplied ? `${colors.border}20` : "rgba(255,255,255,0.9)",
+                  borderColor: justApplied ? colors.border : `${colors.border}40`,
+                  boxShadow: justApplied ? `0 4px 20px ${colors.border}30` : "0 2px 8px rgba(0,0,0,0.06)",
                 }}
               >
-                <span className="text-2xl">{rt.icon}</span>
-                <span className="text-sm font-medium" style={{ color: rt.color }}>{rt.label}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: `${rt.color}20`, color: rt.color }}>
+                <span className="text-3xl">{rt.icon}</span>
+                <span className="text-base font-bold" style={{ color: colors.border }}>{rt.label}</span>
+                <span
+                  className="text-sm font-bold px-3 py-1 rounded-full"
+                  style={{ background: colors.bg, color: colors.text }}
+                >
                   +{pts}分
                 </span>
                 {justApplied && (
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-xl text-xs text-emerald-400 font-medium">
-                    ✅ 已申请，等待审批
-                  </span>
+                  <div
+                    className="absolute inset-0 flex items-center justify-center rounded-2xl"
+                    style={{ background: "rgba(0,0,0,0.3)" }}
+                  >
+                    <span className="text-sm font-bold text-white animate-bounce">✅ 已提交！</span>
+                  </div>
                 )}
               </button>
             );
           })}
         </div>
         {applyError && (
-          <div className="mt-3 text-sm text-rose-400 text-center animate-pulse">
+          <div className="mt-3 text-sm text-center font-medium" style={{ color: "#ef4444" }}>
             ❌ {applyError}
           </div>
         )}
       </div>
 
-      {/* ─── 兑换时间 ─── */}
-      <div className="rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06]">
-        <h3 className="font-semibold mb-4 text-[color:var(--color-text-primary)]">⏱️ 兑换时间</h3>
-        <div className="grid grid-cols-2 gap-3">
+      {/* ─── 兑换时间（金色渐变） ─── */}
+      <div
+        className="rounded-3xl p-6"
+        style={{ background: "rgba(255,255,255,0.7)", boxShadow: "0 4px 20px rgba(0,0,0,0.05)" }}
+      >
+        <h3 className="font-bold text-lg mb-4 text-center" style={{ color: "#1e293b" }}>🎁 兑换时间</h3>
+        <div className="grid grid-cols-2 gap-4">
           {EXCHANGE_OPTIONS.map((ex) => {
             const canAfford = balance.balance >= ex.points;
             return (
@@ -371,43 +381,79 @@ function ChildView({ balance, config, history, pendingRequests, appliedType, app
                 key={ex.points}
                 onClick={() => canAfford && onExchange(ex.points)}
                 disabled={!canAfford}
-                className="flex flex-col items-center gap-2 p-4 rounded-xl border transition-all duration-200 cursor-pointer hover:scale-[1.02] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100"
+                className="flex flex-col items-center gap-2 p-5 rounded-2xl border-2 transition-all duration-300 cursor-pointer hover:scale-105 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100"
                 style={{
-                  backgroundColor: canAfford ? `${ex.color}15` : "rgba(255,255,255,0.03)",
-                  borderColor: canAfford ? `${ex.color}30` : "rgba(255,255,255,0.06)",
+                  background: canAfford
+                    ? "linear-gradient(135deg, #fef3c7, #fde68a)"
+                    : "rgba(255,255,255,0.5)",
+                  borderColor: canAfford ? "#d97706" : "#e5e7eb",
+                  boxShadow: canAfford ? "0 4px 20px rgba(217,119,6,0.2)" : "none",
                 }}
               >
-                <span className="text-2xl">⏱️</span>
-                <span className="text-sm font-medium" style={{ color: canAfford ? ex.color : undefined }}>
+                <span className="text-3xl">{ex.icon}</span>
+                <span className="text-base font-bold" style={{ color: canAfford ? "#92400e" : "#9ca3af" }}>
                   {ex.label}
                 </span>
-                <span className="text-xs text-[color:var(--color-text-muted)]">-{ex.points}分</span>
+                <span className="text-sm font-medium" style={{ color: canAfford ? "#b45309" : "#d1d5db" }}>
+                  -{ex.points}分
+                </span>
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* ─── 待审批 ─── */}
+      {/* ─── 待审批（可爱动画） ─── */}
       {pendingRequests.length > 0 && (
-        <div className="rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06]">
-          <h3 className="font-semibold mb-4 text-[color:var(--color-text-primary)]">⏳ 待审批</h3>
-          <div className="space-y-2">
+        <div
+          className="rounded-3xl p-6"
+          style={{ background: "rgba(255,255,255,0.7)", boxShadow: "0 4px 20px rgba(0,0,0,0.05)" }}
+        >
+          <h3 className="font-bold text-lg mb-4 text-center" style={{ color: "#1e293b" }}>⏳ 等待审批</h3>
+          <div className="space-y-3">
             {pendingRequests.map((r) => {
               const st = STATUS_MAP[r.status] || STATUS_MAP.pending;
               return (
-                <div key={r.id} className="flex items-center justify-between py-2.5 border-b border-white/[0.04] last:border-0">
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between py-3 px-4 rounded-xl"
+                  style={{ background: "rgba(255,255,255,0.8)", border: "1px solid #e5e7eb" }}
+                >
                   <div className="flex items-center gap-3">
-                    <span className="text-sm" style={{ color: REQUEST_TYPE_COLORS[r.request_type] }}>
-                      {REQUEST_TYPE_LABELS[r.request_type] || r.request_type}
+                    <span className="text-lg">
+                      {REQUEST_TYPES.find((t) => t.key === r.request_type)?.icon || "📋"}
                     </span>
-                    <span className="text-sm font-mono text-purple-400">+{r.points}</span>
+                    <div>
+                      <span className="text-sm font-medium" style={{ color: "#1e293b" }}>
+                        {REQUEST_TYPE_LABELS[r.request_type] || r.request_type}
+                      </span>
+                      <span className="text-sm font-bold ml-2" style={{ color: "#8b5cf6" }}>+{r.points}分</span>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-[color:var(--color-text-muted)]">{formatTimeAgo(r.created_at)}</span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${st.bg}`} style={{ color: st.color }}>
-                      {st.label}
-                    </span>
+                    <span className="text-xs" style={{ color: "#9ca3af" }}>{formatTimeAgo(r.created_at)}</span>
+                    {r.status === "pending" ? (
+                      <span
+                        className="text-xs px-2 py-1 rounded-full font-medium"
+                        style={{
+                          background: "#fef3c7",
+                          color: "#d97706",
+                          animation: "pulse-glow 2s ease-in-out infinite",
+                        }}
+                      >
+                        ⏳ 等待中...
+                      </span>
+                    ) : (
+                      <span
+                        className="text-xs px-2 py-1 rounded-full font-medium"
+                        style={{
+                          background: st.color === "#22c55e" ? "#dcfce7" : "#fee2e2",
+                          color: st.color,
+                        }}
+                      >
+                        {st.label}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -416,22 +462,29 @@ function ChildView({ balance, config, history, pendingRequests, appliedType, app
         </div>
       )}
 
-      {/* ─── 积分历史 ─── */}
-      <div className="rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06]">
-        <h3 className="font-semibold mb-4 text-[color:var(--color-text-primary)]">📋 积分记录</h3>
+      {/* ─── 积分记录 ─── */}
+      <div
+        className="rounded-3xl p-6"
+        style={{ background: "rgba(255,255,255,0.7)", boxShadow: "0 4px 20px rgba(0,0,0,0.05)" }}
+      >
+        <h3 className="font-bold text-lg mb-4 text-center" style={{ color: "#1e293b" }}>📋 积分记录</h3>
         {history.length === 0 ? (
-          <div className="text-sm text-[color:var(--color-text-muted)] py-4 text-center">暂无记录</div>
+          <div className="text-sm py-4 text-center" style={{ color: "#9ca3af" }}>暂无记录</div>
         ) : (
           <div className="space-y-2">
             {history.map((h) => (
-              <div key={h.id} className="flex justify-between items-center text-sm py-2 border-b border-white/[0.04] last:border-0">
+              <div
+                key={h.id}
+                className="flex justify-between items-center text-sm py-2"
+                style={{ borderBottom: "1px solid #f3f4f6" }}
+              >
                 <div className="flex items-center gap-2">
-                  <span className={h.tx_type === "earn" ? "text-emerald-400" : "text-rose-400"}>
+                  <span style={{ color: h.tx_type === "earn" ? "#16a34a" : "#ef4444" }}>
                     {h.tx_type === "earn" ? "+" : "-"}{h.points}
                   </span>
-                  <span className="text-[color:var(--color-text-secondary)]">{h.description}</span>
+                  <span style={{ color: "#4b5563" }}>{h.description}</span>
                 </div>
-                <div className="text-xs text-[color:var(--color-text-muted)]">
+                <div className="text-xs" style={{ color: "#9ca3af" }}>
                   余额 {h.balance_after} · {formatTimeAgo(h.created_at)}
                 </div>
               </div>
@@ -444,11 +497,10 @@ function ChildView({ balance, config, history, pendingRequests, appliedType, app
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 管理员视图
+// 管理员视图 — 液态玻璃风格
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 interface AdminViewProps {
   balances: PointsBalance[];
-  config: PointsConfig;
   pendingRequests: PointRequest[];
   balancesMap: Record<number, PointsBalance>;
   onApprove: (requestId: number, action: "approve" | "reject") => void;
@@ -459,26 +511,33 @@ function AdminView({ balances, pendingRequests, balancesMap, onApprove, onSwitch
   return (
     <div className="space-y-6">
       {/* ─── 所有孩子积分卡片 ─── */}
-      <div className="rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06]">
-        <h3 className="font-semibold mb-4 text-[color:var(--color-text-primary)]">👧 孩子积分</h3>
+      <div className="rounded-2xl glass p-5">
+        <h3 className="font-semibold mb-4" style={{ color: "var(--t1)" }}>👧 孩子积分</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {balances.filter((b) => b.username !== "admin").map((b) => {
             const accent = getUserColor(b.username);
             return (
               <div
                 key={b.user_id}
-                className="relative rounded-xl p-4 border border-white/[0.06] cursor-pointer hover:bg-white/[0.04] transition-all duration-200"
+                className="relative rounded-xl p-4 cursor-pointer transition-all duration-200 hover:scale-[1.02]"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
                 onClick={() => onSwitchUser(b.user_id, b.username)}
               >
-                <div className="absolute top-0 left-4 right-4 h-[1px] rounded-full" style={{ background: `linear-gradient(90deg, transparent, ${accent}40, transparent)` }} />
+                <div
+                  className="absolute top-0 left-4 right-4 h-[1px] rounded-full"
+                  style={{ background: `linear-gradient(90deg, transparent, ${accent}40, transparent)` }}
+                />
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" style={{ backgroundColor: `${accent}20`, color: accent }}>
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
+                      style={{ background: `${accent}20`, color: accent }}
+                    >
                       {b.display_name[0]}
                     </div>
                     <div>
-                      <div className="font-semibold text-[color:var(--color-text-primary)]">{b.display_name}</div>
-                      <div className="text-[10px] text-[color:var(--color-text-muted)]">点击查看 →</div>
+                      <div className="font-semibold" style={{ color: "var(--t1)" }}>{b.display_name}</div>
+                      <div className="text-[10px]" style={{ color: "var(--t3)" }}>点击查看 →</div>
                     </div>
                   </div>
                   <div className="text-2xl font-mono font-bold" style={{ color: accent }}>{b.balance}</div>
@@ -493,17 +552,20 @@ function AdminView({ balances, pendingRequests, balancesMap, onApprove, onSwitch
       <AdminAdjustPanel balances={balances} />
 
       {/* ─── 待审批列表 ─── */}
-      <div className="rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06]">
-        <h3 className="font-semibold mb-4 text-[color:var(--color-text-primary)]">
+      <div className="rounded-2xl glass p-5">
+        <h3 className="font-semibold mb-4" style={{ color: "var(--t1)" }}>
           ⏳ 待审批
           {pendingRequests.length > 0 && (
-            <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+            <span
+              className="ml-2 text-xs px-2 py-0.5 rounded-full"
+              style={{ background: "rgba(234,179,8,0.2)", color: "#eab308" }}
+            >
               {pendingRequests.length}
             </span>
           )}
         </h3>
         {pendingRequests.length === 0 ? (
-          <div className="text-sm text-[color:var(--color-text-muted)] py-4 text-center">无待审批请求</div>
+          <div className="text-sm py-4 text-center" style={{ color: "var(--t3)" }}>无待审批请求</div>
         ) : (
           <div className="space-y-3">
             {pendingRequests.map((r) => {
@@ -511,16 +573,23 @@ function AdminView({ balances, pendingRequests, balancesMap, onApprove, onSwitch
               const typeName = REQUEST_TYPE_LABELS[r.request_type] || r.request_type;
               const typeColor = REQUEST_TYPE_COLORS[r.request_type] || "#8b5cf6";
               return (
-                <div key={r.id} className="flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/[0.04]">
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between p-3 rounded-xl"
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)" }}
+                >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: `${typeColor}20`, color: typeColor }}>
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                      style={{ background: `${typeColor}20`, color: typeColor }}
+                    >
                       {typeName[0]}
                     </div>
                     <div>
-                      <div className="text-sm font-medium text-[color:var(--color-text-primary)]">
+                      <div className="text-sm font-medium" style={{ color: "var(--t1)" }}>
                         {user?.display_name || "未知"} · {typeName}
                       </div>
-                      <div className="text-xs text-[color:var(--color-text-muted)]">
+                      <div className="text-xs" style={{ color: "var(--t3)" }}>
                         +{r.points}分 · {formatTimeAgo(r.created_at)}
                       </div>
                     </div>
@@ -528,13 +597,15 @@ function AdminView({ balances, pendingRequests, balancesMap, onApprove, onSwitch
                   <div className="flex gap-2">
                     <button
                       onClick={() => onApprove(r.id, "approve")}
-                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/30 transition-all duration-200 cursor-pointer"
+                      className="px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all duration-200"
+                      style={{ background: "rgba(16,185,129,0.2)", border: "1px solid rgba(16,185,129,0.3)", color: "#34d399" }}
                     >
                       ✅ 同意
                     </button>
                     <button
                       onClick={() => onApprove(r.id, "reject")}
-                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-all duration-200 cursor-pointer"
+                      className="px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all duration-200"
+                      style={{ background: "rgba(239,68,68,0.2)", border: "1px solid rgba(239,68,68,0.3)", color: "#f87171" }}
                     >
                       ❌ 拒绝
                     </button>
@@ -546,7 +617,7 @@ function AdminView({ balances, pendingRequests, balancesMap, onApprove, onSwitch
         )}
       </div>
 
-      {/* ─── 最近交易（管理员看全局） ─── */}
+      {/* ─── 最近交易 ─── */}
       <AdminRecentTransactions balancesMap={balancesMap} />
     </div>
   );
@@ -562,14 +633,12 @@ function AdminRecentTransactions({ balancesMap }: { balancesMap: Record<number, 
   useEffect(() => {
     async function load() {
       try {
-        // Fetch history for all kids
         const users = Object.values(balancesMap).filter((b) => b.username !== "admin");
         const allHistory: PointTransaction[] = [];
         for (const u of users) {
           const data = await fetchMyPoints(u.user_id);
           if (data.history) allHistory.push(...data.history);
         }
-        // Sort by created_at desc, take latest 20
         allHistory.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         setTransactions(allHistory.slice(0, 20));
       } catch (e) {
@@ -581,27 +650,34 @@ function AdminRecentTransactions({ balancesMap }: { balancesMap: Record<number, 
   }, [balancesMap]);
 
   return (
-    <div className="rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06]">
-      <h3 className="font-semibold mb-4 text-[color:var(--color-text-primary)]">📊 最近交易</h3>
+    <div className="rounded-2xl glass p-5">
+      <h3 className="font-semibold mb-4" style={{ color: "var(--t1)" }}>📊 最近交易</h3>
       {!loaded ? (
         <div className="flex items-center justify-center py-4">
-          <div className="w-4 h-4 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+          <div
+            className="w-4 h-4 border-2 rounded-full animate-spin"
+            style={{ borderColor: "rgba(255,255,255,0.2)", borderTopColor: "rgba(255,255,255,0.6)" }}
+          />
         </div>
       ) : transactions.length === 0 ? (
-        <div className="text-sm text-[color:var(--color-text-muted)] py-4 text-center">暂无交易</div>
+        <div className="text-sm py-4 text-center" style={{ color: "var(--t3)" }}>暂无交易</div>
       ) : (
         <div className="space-y-2">
           {transactions.map((t) => {
             const user = balancesMap[t.user_id];
             return (
-              <div key={t.id} className="flex justify-between items-center text-sm py-2 border-b border-white/[0.04] last:border-0">
+              <div
+                key={t.id}
+                className="flex justify-between items-center text-sm py-2"
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+              >
                 <div className="flex items-center gap-2">
-                  <span className={t.tx_type === "earn" ? "text-emerald-400" : "text-rose-400"}>
+                  <span style={{ color: t.tx_type === "earn" ? "#34d399" : "#f87171" }}>
                     {t.tx_type === "earn" ? "+" : "-"}{t.points}
                   </span>
-                  <span className="text-[color:var(--color-text-secondary)]">{t.description}</span>
+                  <span style={{ color: "var(--t2)" }}>{t.description}</span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-[color:var(--color-text-muted)]">
+                <div className="flex items-center gap-2 text-xs" style={{ color: "var(--t3)" }}>
                   <span>{user?.display_name || "?"}</span>
                   <span>·</span>
                   <span>{formatTimeAgo(t.created_at)}</span>
@@ -623,7 +699,7 @@ function AdminAdjustPanel({ balances }: { balances: PointsBalance[] }) {
   const [points, setPointsVal] = useState<string>("");
   const [desc, setDesc] = useState("");
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const kids = balances.filter((b) => b.username !== "admin");
 
@@ -634,7 +710,7 @@ function AdminAdjustPanel({ balances }: { balances: PointsBalance[] }) {
       setMsg({ type: "err", text: "请输入非零整数" });
       return;
     }
-    setLoading(true);
+    setSaving(true);
     setMsg(null);
     try {
       const res = await setPoints(userId, p, desc || undefined);
@@ -648,17 +724,24 @@ function AdminAdjustPanel({ balances }: { balances: PointsBalance[] }) {
     } catch (e: any) {
       setMsg({ type: "err", text: e.message || "请求失败" });
     }
-    setLoading(false);
+    setSaving(false);
+  };
+
+  const glassInput = {
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    color: "var(--t1)",
   };
 
   return (
-    <div className="rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06]">
-      <h3 className="font-semibold mb-4 text-[color:var(--color-text-primary)]">✏️ 直接调整积分</h3>
+    <div className="rounded-2xl glass p-5">
+      <h3 className="font-semibold mb-4" style={{ color: "var(--t1)" }}>✏️ 直接调整积分</h3>
       <div className="flex flex-wrap gap-3 items-end">
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-[color:var(--color-text-muted)]">用户</label>
+          <label className="text-xs" style={{ color: "var(--t3)" }}>用户</label>
           <select
-            className="px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-[color:var(--color-text-primary)]"
+            className="px-3 py-1.5 rounded-lg text-sm"
+            style={glassInput}
             value={userId}
             onChange={(e) => setUserId(Number(e.target.value))}
           >
@@ -669,19 +752,21 @@ function AdminAdjustPanel({ balances }: { balances: PointsBalance[] }) {
           </select>
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-[color:var(--color-text-muted)]">积分（正加负减）</label>
+          <label className="text-xs" style={{ color: "var(--t3)" }}>积分（正加负减）</label>
           <input
             type="number"
-            className="w-28 px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-[color:var(--color-text-primary)]"
+            className="w-28 px-3 py-1.5 rounded-lg text-sm"
+            style={glassInput}
             placeholder="+10 / -5"
             value={points}
             onChange={(e) => setPointsVal(e.target.value)}
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-[color:var(--color-text-muted)]">备注</label>
+          <label className="text-xs" style={{ color: "var(--t3)" }}>备注</label>
           <input
-            className="w-40 px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-[color:var(--color-text-primary)]"
+            className="w-40 px-3 py-1.5 rounded-lg text-sm"
+            style={glassInput}
             placeholder="可选"
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
@@ -689,14 +774,15 @@ function AdminAdjustPanel({ balances }: { balances: PointsBalance[] }) {
         </div>
         <button
           onClick={handleSubmit}
-          disabled={loading || !userId || !points}
-          className="px-4 py-1.5 rounded-lg text-sm font-medium bg-violet-500/20 border border-violet-500/30 text-violet-400 hover:bg-violet-500/30 transition-all duration-200 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+          disabled={saving || !userId || !points}
+          className="px-4 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ background: "var(--acc-g2)", border: "1px solid var(--acc-g)", color: "var(--acc)" }}
         >
-          {loading ? "处理中..." : "确认"}
+          {saving ? "处理中..." : "确认"}
         </button>
       </div>
       {msg && (
-        <div className={`mt-3 text-sm ${msg.type === "ok" ? "text-emerald-400" : "text-rose-400"}`}>
+        <div className="mt-3 text-sm" style={{ color: msg.type === "ok" ? "var(--ok)" : "var(--err)" }}>
           {msg.text}
         </div>
       )}

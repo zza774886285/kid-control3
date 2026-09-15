@@ -1,4 +1,5 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
+import ThemeToggle from "./ThemeToggle";
 
 const NAV = [
   { path: "/", label: "首页", icon: "🏠" },
@@ -11,19 +12,25 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* 顶部导航栏 */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-black/30 border-b border-white/[0.06]">
-        <div className="max-w-4xl mx-auto px-4 flex items-center justify-between h-14">
-          {/* Logo */}
+      <header
+        className="sticky top-0 z-50 glass transition-colors duration-300"
+        style={{ borderBottom: "1px solid var(--glass-b)" }}
+      >
+        <div className="max-w-5xl mx-auto px-4 flex items-center justify-between h-14">
           <div className="flex items-center gap-2">
             <span className="text-lg">📱</span>
-            <span className="font-semibold text-[color:var(--color-text-primary)] tracking-tight">
+            <span className="font-semibold" style={{ color: "var(--t1)" }}>
               平板管控
             </span>
           </div>
 
-          {/* Tab 导航 */}
-          <nav className="flex items-center gap-1 bg-white/[0.05] rounded-full p-1">
+          <nav
+            className="flex items-center gap-1 rounded-full p-1"
+            style={{
+              background: "var(--glass)",
+              border: "1px solid var(--glass-b)",
+            }}
+          >
             {NAV.map((item) => {
               const active =
                 item.path === "/"
@@ -33,11 +40,16 @@ export default function Layout() {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200"
+                  style={
                     active
-                      ? "bg-white/10 text-white shadow-sm"
-                      : "text-[color:var(--color-text-muted)] hover:text-[color:var(--color-text-secondary)]"
-                  }`}
+                      ? {
+                          background: "var(--acc-g2)",
+                          color: "var(--acc)",
+                          boxShadow: "0 0 10px var(--acc-g)",
+                        }
+                      : { color: "var(--t3)" }
+                  }
                 >
                   <span className="text-base">{item.icon}</span>
                   <span>{item.label}</span>
@@ -45,11 +57,12 @@ export default function Layout() {
               );
             })}
           </nav>
+
+          <ThemeToggle />
         </div>
       </header>
 
-      {/* 主内容 */}
-      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6">
         <Outlet />
       </main>
     </div>

@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>kid-control3 — Neon Cyber</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #05050a;
+      --bg-card: rgba(15,15,30,0.6);
+      --border: rgba(100,120,255,0.12);
+      --text-primary: #e8eaff;
+      --text-secondary: #8890c0;
+      --text-muted: #4a5090;
+      --neon-blue: #4d7cff;
+      --neon-cyan: #00f0ff;
+      --neon-purple: #a855f7;
+      --neon-pink: #f472b6;
+      --neon-green: #34d399;
+      --neon-red: #f43f5e;
+      --neon-orange: #fb923c;
+      --radius: 16px;
+      --font: 'Space Grotesk', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* 动态背景光效 */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background:
+        radial-gradient(ellipse at 20% 20%, rgba(77,124,255,0.08) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(168,85,247,0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 50%, rgba(0,240,255,0.04) 0%, transparent 60%);
+      animation: bgShift 20s ease-in-out infinite alternate;
+      pointer-events: none;
+      z-index: 0;
+    }
+    @keyframes bgShift {
+      0% { transform: translate(0, 0) rotate(0deg); }
+      100% { transform: translate(-5%, -3%) rotate(2deg); }
+    }
+
+    .layout { display: flex; position: relative; z-index: 1; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 200px;
+      background: rgba(10,10,20,0.8);
+      backdrop-filter: blur(20px);
+      border-right: 1px solid var(--border);
+      padding: 24px 14px;
+      display: flex;
+      flex-direction: column;
+    }
+    .logo {
+      font-size: 15px;
+      font-weight: 700;
+      padding: 8px 14px;
+      margin-bottom: 28px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .logo-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-text-fill-color: white;
+      font-size: 14px;
+      box-shadow: 0 0 20px rgba(77,124,255,0.3);
+    }
+    .nav { display: flex; flex-direction: column; gap: 2px; }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .nav-item:hover { background: rgba(77,124,255,0.08); color: var(--text-secondary); }
+    .nav-item.active {
+      background: rgba(77,124,255,0.12);
+      color: var(--neon-blue);
+      box-shadow: inset 0 0 20px rgba(77,124,255,0.05);
+    }
+
+    .main { flex: 1; padding: 32px 40px; max-width: 960px; }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--text-primary), var(--neon-blue));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      background: rgba(77,124,255,0.1);
+      border: 1px solid rgba(77,124,255,0.2);
+      color: var(--neon-blue);
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+    .refresh-btn {
+      font-size: 12px;
+      padding: 7px 16px;
+      border-radius: 20px;
+      background: rgba(77,124,255,0.08);
+      border: 1px solid rgba(77,124,255,0.15);
+      color: var(--neon-blue);
+      cursor: pointer;
+      font-family: var(--font);
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .refresh-btn:hover {
+      background: rgba(77,124,255,0.15);
+      box-shadow: 0 0 20px rgba(77,124,255,0.2);
+    }
+
+    /* 设备卡片 */
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .device-card {
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      border-radius: var(--radius);
+      padding: 22px;
+      border: 1px solid var(--border);
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    .device-card:hover {
+      border-color: rgba(100,120,255,0.25);
+      box-shadow: 0 0 30px rgba(77,124,255,0.08);
+    }
+    /* 正常 — 蓝色发光边框 */
+    .device-card.online:not(.blocked)::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--neon-blue), var(--neon-cyan), transparent);
+      animation: glowPulse 3s ease-in-out infinite;
+    }
+    @keyframes glowPulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+    .device-card.online:not(.blocked) {
+      border-color: rgba(77,124,255,0.15);
+    }
+    /* 断网 — 红色发光 + 警告脉冲 */
+    .device-card.blocked {
+      border-color: rgba(244,63,94,0.3);
+      box-shadow: 0 0 30px rgba(244,63,94,0.08);
+    }
+    .device-card.blocked::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--neon-red), var(--neon-pink), transparent);
+      animation: alertPulse 1.5s ease-in-out infinite;
+    }
+    @keyframes alertPulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+    /* 离线 */
+    .device-card.offline { opacity: 0.4; }
+
+    .card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .card-left { display: flex; align-items: center; gap: 10px; }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+    }
+    .status-dot.on {
+      background: var(--neon-green);
+      box-shadow: 0 0 12px rgba(52,211,153,0.6);
+      animation: dotPulse 2s ease-in-out infinite;
+    }
+    @keyframes dotPulse {
+      0%, 100% { box-shadow: 0 0 8px rgba(52,211,153,0.4); }
+      50% { box-shadow: 0 0 16px rgba(52,211,153,0.8); }
+    }
+    .status-dot.off { background: var(--text-muted); }
+    .dev-name { font-size: 15px; font-weight: 700; }
+    .status-badge {
+      font-size: 10px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+    .status-ok { background: rgba(52,211,153,0.12); color: var(--neon-green); border: 1px solid rgba(52,211,153,0.2); }
+    .status-blocked { background: rgba(244,63,94,0.12); color: #fda4af; border: 1px solid rgba(244,63,94,0.2); }
+    .mac { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+    /* 使用量 */
+    .usage { margin-bottom: 14px; }
+    .usage-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .usage-big {
+      font-size: 26px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+    .usage-meta { font-size: 12px; color: var(--text-muted); }
+    .bar { height: 5px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden; }
+    .bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.6s cubic-bezier(0.16,1,0.3,1);
+      position: relative;
+    }
+    .bar-fill::after {
+      content: '';
+      position: absolute;
+      right: 0; top: -2px; bottom: -2px;
+      width: 4px;
+      border-radius: 2px;
+      background: inherit;
+      box-shadow: 0 0 8px currentColor;
+    }
+    .bar-fill.normal { background: linear-gradient(90deg, var(--neon-blue), var(--neon-cyan)); }
+    .bar-fill.warn { background: linear-gradient(90deg, var(--neon-orange), var(--neon-red)); }
+
+    /* 活动芯片 */
+    .chips { display: flex; gap: 6px; margin-bottom: 16px; }
+    .chip {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+    .chip-video { background: rgba(77,124,255,0.1); color: var(--neon-cyan); border: 1px solid rgba(77,124,255,0.15); }
+    .chip-game { background: rgba(251,146,60,0.1); color: var(--neon-orange); border: 1px solid rgba(251,146,60,0.15); }
+    .chip-none { background: rgba(255,255,255,0.03); color: var(--text-muted); border: 1px solid var(--border); }
+
+    /* 按钮 */
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill {
+      font-size: 11px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-family: var(--font);
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .pill:hover {
+      background: rgba(77,124,255,0.08);
+      border-color: rgba(77,124,255,0.2);
+      box-shadow: 0 0 15px rgba(77,124,255,0.1);
+    }
+    .pill-red { border-color: rgba(244,63,94,0.25); color: var(--neon-red); }
+    .pill-red:hover { background: rgba(244,63,94,0.1); box-shadow: 0 0 15px rgba(244,63,94,0.15); }
+    .pill-green { border-color: rgba(52,211,153,0.25); color: var(--neon-green); }
+    .pill-green:hover { background: rgba(52,211,153,0.1); box-shadow: 0 0 15px rgba(52,211,153,0.15); }
+
+    /* ====== 本周概览 ====== */
+    .overview {
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      border-radius: var(--radius);
+      padding: 22px;
+      border: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+    .overview::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--neon-blue), var(--neon-purple), transparent);
+    }
+    .overview-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .overview-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr 1fr;
+      gap: 20px;
+    }
+    .stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+    .stat-big {
+      font-size: 32px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      background: linear-gradient(135deg, var(--neon-blue), var(--neon-cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .stat-unit { font-size: 13px; font-weight: 400; -webkit-text-fill-color: var(--text-muted); margin-left: 2px; }
+    .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+
+    /* 迷你柱状图 */
+    .chart { display: flex; gap: 4px; align-items: flex-end; height: 56px; }
+    .day-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; height: 100%; justify-content: flex-end; }
+    .bar-group { display: flex; gap: 2px; width: 100%; align-items: flex-end; }
+    .bar-item {
+      flex: 1;
+      border-radius: 3px 3px 1px 1px;
+      min-height: 2px;
+      transition: height 0.4s cubic-bezier(0.16,1,0.3,1);
+      position: relative;
+    }
+    .bar-item.normal { background: linear-gradient(to top, var(--neon-blue), var(--neon-cyan)); }
+    .bar-item.over { background: linear-gradient(to top, var(--neon-red), var(--neon-pink)); }
+    .bar-item.over::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: var(--neon-pink);
+      box-shadow: 0 0 6px var(--neon-pink);
+    }
+    .day-label { font-size: 9px; color: var(--text-muted); margin-top: 6px; font-family: var(--font-mono); }
+
+    /* 占比条 */
+    .ratio { display: flex; flex-direction: column; gap: 8px; }
+    .ratio-row { display: flex; align-items: center; gap: 8px; }
+    .ratio-name { font-size: 11px; color: var(--text-secondary); width: 36px; font-weight: 600; }
+    .ratio-track { flex: 1; height: 6px; background: rgba(255,255,255,0.04); border-radius: 3px; overflow: hidden; }
+    .ratio-fill { height: 100%; border-radius: 3px; position: relative; }
+    .ratio-fill.blue { background: linear-gradient(90deg, var(--neon-blue), var(--neon-cyan)); }
+    .ratio-fill.red { background: linear-gradient(90deg, var(--neon-red), var(--neon-pink)); }
+    .ratio-val { font-size: 11px; color: var(--text-muted); width: 44px; text-align: right; font-family: var(--font-mono); }
+
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .main { padding: 20px 16px; }
+      .cards { grid-template-columns: 1fr; }
+      .overview-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="logo">
+        <div class="logo-icon">⚡</div>
+        kid-control
+      </div>
+      <div class="nav">
+        <div class="nav-item active">📊 仪表盘</div>
+        <div class="nav-item">⭐ 积分</div>
+        <div class="nav-item">⚙️ 设置</div>
+      </div>
+    </nav>
+
+    <main class="main">
+      <div class="header">
+        <div class="header-left">
+          <h1>仪表盘</h1>
+          <span class="badge">WORKDAY</span>
+        </div>
+        <button class="refresh-btn">🔄 刷新</button>
+      </div>
+
+      <div class="cards">
+        <!-- 华为 — 在线 -->
+        <div class="device-card online">
+          <div class="card-top">
+            <div class="card-left">
+              <div class="status-dot on"></div>
+              <span class="dev-name">华为</span>
+              <span class="status-badge status-ok">ONLINE</span>
+            </div>
+            <span class="mac">A0:DE:0F</span>
+          </div>
+          <div class="usage">
+            <div class="usage-row">
+              <span class="usage-big">1h 23m</span>
+              <span class="usage-meta">限额 2h · 69%</span>
+            </div>
+            <div class="bar">
+              <div class="bar-fill normal" style="width:69%"></div>
+            </div>
+          </div>
+          <div class="chips">
+            <span class="chip chip-video">📺 视频 45min</span>
+            <span class="chip chip-game">🎮 游戏 12min</span>
+          </div>
+          <div class="actions">
+            <button class="pill">➕ 30min</button>
+            <button class="pill">➖ 30min</button>
+            <button class="pill pill-red">🔴 断网</button>
+            <button class="pill">⏸️ 暂停</button>
+          </div>
+        </div>
+
+        <!-- iPad — 断网 -->
+        <div class="device-card blocked">
+          <div class="card-top">
+            <div class="card-left">
+              <div class="status-dot off"></div>
+              <span class="dev-name">iPad</span>
+              <span class="status-badge status-blocked">BLOCKED</span>
+            </div>
+            <span class="mac">80:5F:C5</span>
+          </div>
+          <div class="usage">
+            <div class="usage-row">
+              <span class="usage-big" style="background:linear-gradient(135deg,var(--neon-red),var(--neon-pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent">2h 05m</span>
+              <span class="usage-meta">限额 1h 30m · <span style="color:var(--neon-red)">超限</span></span>
+            </div>
+            <div class="bar">
+              <div class="bar-fill warn" style="width:100%"></div>
+            </div>
+          </div>
+          <div class="chips">
+            <span class="chip chip-video">📺 视频 1h 30min</span>
+          </div>
+          <div class="actions">
+            <button class="pill">➕ 30min</button>
+            <button class="pill">➖ 30min</button>
+            <button class="pill pill-green">🟢 恢复</button>
+            <button class="pill">⏸️ 暂停</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 本周使用概览 -->
+      <div class="overview">
+        <div class="overview-title">📋 本周使用概览</div>
+        <div class="overview-grid">
+          <div>
+            <div class="stat-label">今日剩余</div>
+            <div class="stat-big">37<span class="stat-unit">min</span></div>
+            <div class="stat-sub">两台设备合计</div>
+          </div>
+          <div>
+            <div class="stat-label" style="margin-bottom:10px">本周趋势</div>
+            <div class="chart">
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item normal" style="height:40%"></div>
+                  <div class="bar-item normal" style="height:25%"></div>
+                </div>
+                <div class="day-label">一</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item normal" style="height:55%"></div>
+                  <div class="bar-item normal" style="height:50%"></div>
+                </div>
+                <div class="day-label">二</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item normal" style="height:30%"></div>
+                  <div class="bar-item over" style="height:75%"></div>
+                </div>
+                <div class="day-label">三</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item normal" style="height:65%"></div>
+                  <div class="bar-item normal" style="height:35%"></div>
+                </div>
+                <div class="day-label">四</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item normal" style="height:45%"></div>
+                  <div class="bar-item normal" style="height:20%"></div>
+                </div>
+                <div class="day-label">五</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item over" style="height:80%"></div>
+                  <div class="bar-item over" style="height:60%"></div>
+                </div>
+                <div class="day-label">六</div>
+              </div>
+              <div class="day-col">
+                <div class="bar-group">
+                  <div class="bar-item normal" style="height:35%"></div>
+                  <div class="bar-item over" style="height:90%"></div>
+                </div>
+                <div class="day-label">日</div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="stat-label" style="margin-bottom:10px">今日使用占比</div>
+            <div class="ratio">
+              <div class="ratio-row">
+                <span class="ratio-name" style="color:var(--neon-cyan)">华为</span>
+                <div class="ratio-track">
+                  <div class="ratio-fill blue" style="width:40%"></div>
+                </div>
+                <span class="ratio-val">1h 23m</span>
+              </div>
+              <div class="ratio-row">
+                <span class="ratio-name" style="color:var(--neon-pink)">iPad</span>
+                <div class="ratio-track">
+                  <div class="ratio-fill red" style="width:60%"></div>
+                </div>
+                <span class="ratio-val" style="color:#fda4af">2h 05m</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
