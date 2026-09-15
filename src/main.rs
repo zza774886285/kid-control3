@@ -59,6 +59,7 @@ async fn main() {
         if raw.starts_with("http") { raw } else { format!("http://{}", raw) }
     };
     let listen_addr = std::env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:18089".to_string());
+    let kid_listen_addr = std::env::var("KID_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:18090".to_string());
 
     let db = Arc::new(Database::new(&db_path).expect("数据库初始化失败"));
     let config = ConfigManager::new(db.clone());
@@ -86,8 +87,8 @@ async fn main() {
         cache: RwLock::new(None),
     });
 
-    // API 路由
-    let api_routes = Router::new()
+    // Admin API 路由（全部路由）
+    let admin_api_routes = Router::new()
         .route("/api/data", get(api::data::get_data))
         .route("/api/video-windows", get(api::data::get_video_windows))
         .route("/api/control-status", get(api::control::get_control_status))
@@ -105,13 +106,31 @@ async fn main() {
         .route("/api/points/config", get(api::points::get_points_config))
         .route("/api/points/set", post(api::points::set_points));
 
-    // 静态文件（前端 SPA，所有非 API 路由回退到 index.html）
-    let static_service = ServeDir::new("web/dist")
+    // Admin 静态文件（web/dist/，fallback 到 index.html）
+    let admin_static_service = ServeDir::new("web/dist")
         .fallback(tower_http::services::ServeFile::new("web/dist/index.html"));
 
-    let app = Router::new()
-        .merge(api_routes)
-        .fallback_service(static_service)
+    let admin_app = Router::new()
+        .merge(admin_api_routes)
+        .fallback_service(admin_static_service)
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+        .with_state(state.clone());
+
+    // Kid API 路由（仅积分相关）
+    let kid_api_routes = Router::new()
+        .route("/api/points/balance", get(api::points::get_points_balance))
+        .route("/api/points/apply", post(api::points::apply_points))
+        .route("/api/points/pending", get(api::points::get_pending_requests))
+        .route("/api/points/exchange", post(api::points::exchange_points))
+        .route("/api/points/my", get(api::points::get_my_points))
+        .route("/api/points/config", get(api::points::get_points_config));
+
+    // Kid 静态文件（web/dist/kid/，不设 SPA fallback）
+    let kid_static_service = ServeDir::new("web/dist/kid");
+
+    let kid_app = Router::new()
+        .merge(kid_api_routes)
+        .fallback_service(kid_static_service)
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
         .with_state(state.clone());
 
@@ -146,7 +165,15 @@ async fn main() {
         telegram::poll_telegram_updates(state_clone).await;
     });
 
-    info!("kid-control3 监听 {}", listen_addr);
-    let listener = tokio::net::TcpListener::bind(&listen_addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    // 启动双端口
+    info!("admin 监听 {}", listen_addr);
+    info!("kid   监听 {}", kid_listen_addr);
+
+    let admin_listener = tokio::net::TcpListener::bind(&listen_addr).await.unwrap();
+    let kid_listener = tokio::net::TcpListener::bind(&kid_listen_addr).await.unwrap();
+
+    tokio::join!(
+        axum::serve(admin_listener, admin_app),
+        axum::serve(kid_listener, kid_app)
+    );
 }
