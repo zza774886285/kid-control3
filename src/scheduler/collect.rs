@@ -59,14 +59,9 @@ pub async fn run_control_cycle(
 
     info!("开始管控检查 | 日期类型: {} | 时间: {}", day_type, now.format("%H:%M:%S"));
 
-    let mac_ip = get_mac_ip_map(ros).await;
-    info!("ROS 连接成功，获取到 {} 条 ARP", mac_ip.len());
-
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .no_proxy()
-        .build()
-        .unwrap_or_default();
+    // 只有当某个设备 IP 为空时才查 ARP（通常 IP 已在配置中固定，跳过查询）
+    let need_arp = tablets.values().any(|t| t.ip.is_empty());
+    let mac_ip = if need_arp { get_mac_ip_map(ros).await } else { HashMap::new() };
 
     for (mac, tablet) in &tablets {
         let mac_upper = mac.to_uppercase();
@@ -154,17 +149,15 @@ pub async fn run_data_collection(
     ros: &RosClient,
     config: &ConfigManager,
     db: &Arc<Database>,
+    http_client: &reqwest::Client,
     detector: &ActivityDetector,
     dns_collector: &DnsCollector,
 ) {
     let tablets = config.get_tablets();
-    let mac_ip = get_mac_ip_map(ros).await;
 
-    let http_client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .no_proxy()
-        .build()
-        .unwrap_or_default();
+    // IP 已在配置中固定时跳过 ARP 查询
+    let need_arp = tablets.values().any(|t| t.ip.is_empty());
+    let mac_ip = if need_arp { get_mac_ip_map(ros).await } else { HashMap::new() };
 
     let now = chrono::Local::now().timestamp() as f64;
 

@@ -24,6 +24,7 @@ pub struct AppState {
     pub db: Arc<Database>,
     pub config: ConfigManager,
     pub ros: RosClient,
+    pub http_client: reqwest::Client,
     pub detector: ActivityDetector,
     pub dns_collector: DnsCollector,
     pub cache: RwLock<Option<serde_json::Value>>,
@@ -82,6 +83,11 @@ async fn main() {
         db: db.clone(),
         config,
         ros,
+        http_client: reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .no_proxy()
+            .build()
+            .unwrap_or_default(),
         detector,
         dns_collector,
         cache: RwLock::new(None),
@@ -140,7 +146,7 @@ async fn main() {
         loop {
             scheduler::collect::run_data_collection(
                 &state_clone.ros, &state_clone.config, &state_clone.db,
-                &state_clone.detector, &state_clone.dns_collector,
+                &state_clone.http_client, &state_clone.detector, &state_clone.dns_collector,
             ).await;
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
