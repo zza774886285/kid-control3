@@ -54,16 +54,21 @@ export default function Dashboard() {
   const [weeklyData, setWeeklyData] = useState<Record<string, Record<string, number>>>({});
   const [loading, setLoading] = useState(true);
 
+  // 主数据加载
   const load = useCallback(async () => {
     try {
-      const [d, w] = await Promise.all([fetchData(), fetchWeeklyStats()]);
+      const d = await fetchData();
       setData(d);
-      setWeeklyData(w);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // 周统计数据（独立加载，避免被 tree-shake）
+  useEffect(() => {
+    fetchWeeklyStats().then(setWeeklyData).catch(() => {});
   }, []);
 
   useEffect(() => {
