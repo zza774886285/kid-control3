@@ -164,7 +164,7 @@ pub async fn poll_telegram_updates(state: Arc<AppState>) {
         let body = json!({
             "offset": offset,
             "timeout": 0,
-            "allowed_updates": ["callback_query"],
+            "allowed_updates": ["message", "callback_query"],
         });
 
         match client.post(&url).json(&body).send().await {
