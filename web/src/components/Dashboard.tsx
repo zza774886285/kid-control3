@@ -241,7 +241,7 @@ export default function Dashboard() {
                       await fetch("/api/kid-adjust", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ mac: dev.mac, minutes: 30 }),
+                        body: JSON.stringify({ mac: dev.mac, delta: 1800 }),
                       });
                       setTimeout(load, 500);
                     }}
@@ -259,7 +259,7 @@ export default function Dashboard() {
                       await fetch("/api/kid-adjust", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ mac: dev.mac, minutes: -30 }),
+                        body: JSON.stringify({ mac: dev.mac, delta: -1800 }),
                       });
                       setTimeout(load, 500);
                     }}
@@ -293,25 +293,25 @@ export default function Dashboard() {
                   </button>
                   <button
                     onClick={async () => {
-                      const blocked = data?.config?.[`BLOCKED_${dev.mac.toUpperCase()}`] === "true";
+                      const enabled = data?.config?.[`SWITCH_${dev.mac.toUpperCase()}`] !== "false";
                       await fetch("/api/switch", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ mac: dev.mac, enabled: blocked }),
+                        body: JSON.stringify({ mac: dev.mac, enabled: !enabled }),
                       });
                       setTimeout(load, 500);
                     }}
                     className="px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer"
                     style={{
-                      background: data?.config?.[`BLOCKED_${dev.mac.toUpperCase()}`] === "true"
-                        ? "rgba(34,197,94,0.12)" : "rgba(99,102,241,0.12)",
-                      border: `1px solid ${data?.config?.[`BLOCKED_${dev.mac.toUpperCase()}`] === "true"
-                        ? "rgba(34,197,94,0.3)" : "rgba(99,102,241,0.3)"}`,
-                      color: data?.config?.[`BLOCKED_${dev.mac.toUpperCase()}`] === "true"
-                        ? "#22c55e" : "#6366f1",
+                      background: data?.config?.[`SWITCH_${dev.mac.toUpperCase()}`] !== "false"
+                        ? "rgba(239,68,68,0.12)" : "rgba(34,197,94,0.12)",
+                      border: `1px solid ${data?.config?.[`SWITCH_${dev.mac.toUpperCase()}`] !== "false"
+                        ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
+                      color: data?.config?.[`SWITCH_${dev.mac.toUpperCase()}`] !== "false"
+                        ? "#ef4444" : "#22c55e",
                     }}
                   >
-                    {data?.config?.[`BLOCKED_${dev.mac.toUpperCase()}`] === "true" ? "恢复上网" : "禁止上网"}
+                    {data?.config?.[`SWITCH_${dev.mac.toUpperCase()}`] !== "false" ? "禁止上网" : "恢复上网"}
                   </button>
                 </div>
               </div>
