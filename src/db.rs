@@ -501,6 +501,65 @@ impl Database {
         ).ok()
     }
 
+    /// 积分兑换原子操作：余额检查 + 扣减 + 记录（同一事务）
+    pub fn exchange_atomic(&self, user_id: i64, points: i64, mac: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let balance: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(CASE WHEN tx_type='earn' THEN points ELSE -points END), 0)
+             FROM point_transactions WHERE user_id=?1",
+            rusqlite::params![user_id], |row| row.get(0),
+        ).unwrap_or(0);
+        if balance < points {
+            return Err(format!("积分不足，当前 {} 分", balance));
+        }
+        let new_balance = balance - points;
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, created_at)
+             VALUES (?1, 'spend', ?2, ?3, ?4, datetime('now', '+8 hours'))",
+            rusqlite::params![user_id, points, new_balance, format!("兑换{}分钟平板时间", points)],
+        ).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// 积分审批原子操作：记录积分 + 更新配额（同一事务）
+    pub fn approve_atomic(&self, user_id: i64, points: i64, request_type: &str, request_id: i64) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let balance: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(CASE WHEN tx_type='earn' THEN points ELSE -points END), 0)
+             FROM point_transactions WHERE user_id=?1",
+            rusqlite::params![user_id], |row| row.get(0),
+        ).unwrap_or(0);
+        let new_balance = balance + points;
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, request_id, created_at)
+             VALUES (?1, 'earn', ?2, ?3, ?4, ?5, datetime('now', '+8 hours'))",
+            rusqlite::params![user_id, points, new_balance, format!("{} +{}分", request_type, points), request_id],
+        ).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// 获取最近交易记录
+    pub fn get_recent_transactions(&self) -> Vec<crate::models::PointTransaction> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, user_id, tx_type, points, balance_after, description, created_at
+             FROM point_transactions ORDER BY created_at DESC LIMIT 50"
+        ).unwrap();
+        let rows = stmt.query_map([], |row| {
+            Ok(crate::models::PointTransaction {
+                id: row.get(0)?, user_id: row.get(1)?, tx_type: row.get(2)?,
+                points: row.get(3)?, balance_after: row.get(4)?,
+                description: row.get(5)?, created_at: row.get(6)?,
+            })
+        }).unwrap();
+        rows.filter_map(|r| r.ok()).collect()
+    }
+
+    /// 获取所有用户
     pub fn get_all_users(&self) -> Vec<crate::models::User> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
