@@ -744,6 +744,7 @@ dependencies = [
  "chrono",
  "dotenvy",
  "lazy_static",
+ "once_cell",
  "regex",
  "reqwest",
  "rusqlite",

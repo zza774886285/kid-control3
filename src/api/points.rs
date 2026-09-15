@@ -169,16 +169,7 @@ pub async fn exchange_points(
                 chrono::Local::now().format("%Y-%m-%d"));
             let _ = state.config.set(&key, &new_val.to_string());
 
-            // 扣除积分（记录负数交易）
-            let conn = state.db.get_conn();
-            let new_balance = balance - req.points;
-            let _ = conn.execute(
-                "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, created_at) \
-                 VALUES (?1, 'exchange', ?2, ?3, ?4, datetime('now', '+8 hours'))",
-                rusqlite::params![req.user_id, req.points, new_balance, format!("兑换{}分钟", minutes)],
-            );
-            drop(conn);
-
+            // 扣除积分（record_exchange 内部处理余额检查和记录）
             state.db.record_exchange(req.user_id, req.points, minutes, &mac);
 
             // 异步发送 Telegram 兑换通知
@@ -236,6 +227,11 @@ pub async fn set_points(
 
     let balance = state.db.get_user_points_balance(req.user_id);
     let new_balance = balance + req.points; // 可正可负
+
+    // 检查不能扣成负数
+    if new_balance < 0 {
+        return Json(json!({ "ok": false, "error": format!("积分不足，当前 {} 分，不能调整为 {} 分", balance, new_balance) }));
+    }
 
     let desc = req.description.unwrap_or_else(|| {
         if req.points > 0 {

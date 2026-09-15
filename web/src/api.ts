@@ -99,3 +99,8 @@ export async function fetchRecentTransactions(): Promise<PointTransaction[]> {
   const { data } = await api.get("/points/recent");
   return data.transactions || [];
 }
+
+export async function setPoints(userId: number, points: number, description?: string) {
+  const { data } = await api.post("/points/set", { user_id: userId, points, description });
+  return data;
+}

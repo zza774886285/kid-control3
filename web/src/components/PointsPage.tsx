@@ -7,6 +7,7 @@ import {
   fetchPendingRequests,
   approveRequest,
   fetchPointsConfig,
+  setPoints,
 } from "../api";
 import type {
   PointsBalance,
@@ -474,6 +475,9 @@ function AdminView({ balances, pendingRequests, balancesMap, onApprove, onSwitch
         </div>
       </div>
 
+      {/* ─── 直接调整积分 ─── */}
+      <AdminAdjustPanel balances={balances} />
+
       {/* ─── 待审批列表 ─── */}
       <div className="rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06]">
         <h3 className="font-semibold mb-4 text-[color:var(--color-text-primary)]">
@@ -591,6 +595,95 @@ function AdminRecentTransactions({ balancesMap }: { balancesMap: Record<number, 
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 管理员 - 直接调整积分
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function AdminAdjustPanel({ balances }: { balances: PointsBalance[] }) {
+  const [userId, setUserId] = useState<number>(0);
+  const [points, setPointsVal] = useState<string>("");
+  const [desc, setDesc] = useState("");
+  const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const kids = balances.filter((b) => b.username !== "admin");
+
+  const handleSubmit = async () => {
+    if (!userId || !points) return;
+    const p = parseInt(points, 10);
+    if (isNaN(p) || p === 0) {
+      setMsg({ type: "err", text: "请输入非零整数" });
+      return;
+    }
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await setPoints(userId, p, desc || undefined);
+      if (res.ok) {
+        setMsg({ type: "ok", text: `成功：当前 ${res.new_balance} 分` });
+        setPointsVal("");
+        setDesc("");
+      } else {
+        setMsg({ type: "err", text: res.error || "操作失败" });
+      }
+    } catch (e: any) {
+      setMsg({ type: "err", text: e.message || "请求失败" });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="rounded-2xl p-5 backdrop-blur-xl bg-white/[0.04] border border-white/[0.06]">
+      <h3 className="font-semibold mb-4 text-[color:var(--color-text-primary)]">✏️ 直接调整积分</h3>
+      <div className="flex flex-wrap gap-3 items-end">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-[color:var(--color-text-muted)]">用户</label>
+          <select
+            className="px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-[color:var(--color-text-primary)]"
+            value={userId}
+            onChange={(e) => setUserId(Number(e.target.value))}
+          >
+            <option value={0}>选择用户</option>
+            {kids.map((k) => (
+              <option key={k.user_id} value={k.user_id}>{k.display_name} ({k.balance}分)</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-[color:var(--color-text-muted)]">积分（正加负减）</label>
+          <input
+            type="number"
+            className="w-28 px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-[color:var(--color-text-primary)]"
+            placeholder="+10 / -5"
+            value={points}
+            onChange={(e) => setPointsVal(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-[color:var(--color-text-muted)]">备注</label>
+          <input
+            className="w-40 px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-[color:var(--color-text-primary)]"
+            placeholder="可选"
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+          />
+        </div>
+        <button
+          onClick={handleSubmit}
+          disabled={loading || !userId || !points}
+          className="px-4 py-1.5 rounded-lg text-sm font-medium bg-violet-500/20 border border-violet-500/30 text-violet-400 hover:bg-violet-500/30 transition-all duration-200 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+        >
+          {loading ? "处理中..." : "确认"}
+        </button>
+      </div>
+      {msg && (
+        <div className={`mt-3 text-sm ${msg.type === "ok" ? "text-emerald-400" : "text-rose-400"}`}>
+          {msg.text}
         </div>
       )}
     </div>

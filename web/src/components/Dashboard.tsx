@@ -137,7 +137,10 @@ export default function Dashboard() {
 
       {/* 设备卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {devices.map((d) => {
+        {devices
+          .slice()
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((d) => {
           const ctrl = getCtrl(d.mac);
           const usageSec = ctrl?.usage_sec ?? d.usage_sec ?? 0;
           const limitSec = ctrl?.limit_sec ?? d.limit_sec ?? 0;

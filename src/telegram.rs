@@ -18,8 +18,14 @@ fn build_client() -> reqwest::Client {
     let mut builder = reqwest::Client::builder();
     if let Ok(proxy_url) = std::env::var("HTTP_PROXY") {
         if !proxy_url.is_empty() {
-            if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
-                builder = builder.proxy(proxy);
+            match reqwest::Proxy::all(&proxy_url) {
+                Ok(proxy) => {
+                    tracing::info!("Telegram 使用代理: {}", proxy_url);
+                    builder = builder.proxy(proxy);
+                }
+                Err(e) => {
+                    tracing::warn!("Telegram 代理配置无效 ({}): {}", proxy_url, e);
+                }
             }
         }
     }
