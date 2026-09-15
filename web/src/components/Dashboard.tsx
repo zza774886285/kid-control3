@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { UserData } from "../types";
-import { fetchData, fetchWeeklyStats } from "../api";
+import { fetchData, fetchWeeklyStats, kidAdjust, pauseDevice, switchDevice } from "../api";
 import RealTimeActivity from "./RealTimeActivity";
 
 function MiniBar({
@@ -253,11 +253,7 @@ export default function Dashboard() {
                 <div className="flex flex-wrap gap-2 mt-3">
                   <button
                     onClick={async () => {
-                      await fetch("/api/kid-adjust", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ mac: dev.mac, delta: 1800 }),
-                      });
+                      try { await kidAdjust(dev.mac, 1800); } catch (e) { console.error(e); }
                       setTimeout(load, 500);
                     }}
                     className="px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer"
@@ -271,11 +267,7 @@ export default function Dashboard() {
                   </button>
                   <button
                     onClick={async () => {
-                      await fetch("/api/kid-adjust", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ mac: dev.mac, delta: -1800 }),
-                      });
+                      try { await kidAdjust(dev.mac, -1800); } catch (e) { console.error(e); }
                       setTimeout(load, 500);
                     }}
                     className="px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer"
@@ -290,11 +282,7 @@ export default function Dashboard() {
                   <button
                     onClick={async () => {
                       const paused = data?.config?.[`PAUSE_${dev.mac.toUpperCase()}`] === "true";
-                      await fetch("/api/pause", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ mac: dev.mac, paused: !paused }),
-                      });
+                      try { await pauseDevice(dev.mac, !paused); } catch (e) { console.error(e); }
                       setTimeout(load, 500);
                     }}
                     className="px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer"
@@ -309,11 +297,7 @@ export default function Dashboard() {
                   <button
                     onClick={async () => {
                       const enabled = data?.config?.[`SWITCH_${dev.mac.toUpperCase()}`] !== "false";
-                      await fetch("/api/switch", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ mac: dev.mac, enabled: !enabled }),
-                      });
+                      try { await switchDevice(dev.mac, !enabled); } catch (e) { console.error(e); }
                       setTimeout(load, 500);
                     }}
                     className="px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer"

@@ -111,6 +111,7 @@ async fn main() {
         .route("/api/points/exchange", post(api::points::exchange_points))
         .route("/api/points/my", get(api::points::get_my_points))
         .route("/api/points/config", get(api::points::get_points_config))
+        .route("/api/points/recent", get(api::points::get_recent_transactions))
         .route("/api/points/set", post(api::points::set_points));
 
     // Admin 静态文件（web/dist/，fallback 到 index.html）
@@ -130,7 +131,8 @@ async fn main() {
         .route("/api/points/pending", get(api::points::get_pending_requests))
         .route("/api/points/exchange", post(api::points::exchange_points))
         .route("/api/points/my", get(api::points::get_my_points))
-        .route("/api/points/config", get(api::points::get_points_config));
+        .route("/api/points/config", get(api::points::get_points_config))
+        .route("/api/points/recent", get(api::points::get_recent_transactions));
 
     // Kid 静态文件（web/dist/kid/，不设 SPA fallback）
     let kid_static_service = ServeDir::new("web/dist/kid");

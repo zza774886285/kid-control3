@@ -459,8 +459,10 @@ impl Database {
         let col = match request_type {
             "tutoring" => "tutoring_used",
             "homework" => "homework_used",
-            _ => "other_used",
+            "other" => "other_used",
+            _ => return, // 非法类型直接返回
         };
+        // col 只可能是上面3个硬编码值，不存在注入风险
         conn.execute(
             &format!("UPDATE weekly_quota SET {}=1 WHERE user_id=?1 AND week_start=?2", col),
             params![user_id, week_start],

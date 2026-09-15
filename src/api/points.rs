@@ -210,6 +210,12 @@ pub async fn get_pending_requests(State(state): State<Arc<AppState>>) -> Json<Va
     Json(json!({ "requests": requests }))
 }
 
+/// GET /api/points/recent — 最近交易记录
+pub async fn get_recent_transactions(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let transactions = state.db.get_recent_transactions();
+    Json(json!({ "transactions": transactions }))
+}
+
 /// GET /api/points/config — 积分配置（前端用）
 pub async fn get_points_config(
     State(state): State<Arc<AppState>>,
