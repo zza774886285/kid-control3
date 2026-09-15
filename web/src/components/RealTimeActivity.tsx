@@ -69,16 +69,6 @@ export default function RealTimeActivity({ windows, devices }: Props) {
       }
     }
 
-    // 如果还没找到，取今天该设备最近一个非空闲记录
-    if (!activityType || activityType === "none") {
-      for (const w of windows) {
-        if (w.mac === dev.mac && w.activity_type !== "none" && w.activity_type !== "idle") {
-          activityType = w.activity_type;
-          break;
-        }
-      }
-    }
-
     const act = classify(activityType || "none");
     const isActive = activityType && activityType !== "none" && activityType !== "idle";
 
