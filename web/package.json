@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && mkdir -p dist/kid && cp dist/kid.html dist/kid/index.html",
+    "build": "tsc -b && vite build && mkdir -p dist/kid && cp dist/kid.html dist/kid/index.html && cp -r dist/assets dist/kid/assets",
     "lint": "oxlint",
     "preview": "vite preview"
   },
