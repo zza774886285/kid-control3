@@ -41,18 +41,8 @@ pub async fn collect_api_data(state: &AppState) -> Result<Value, String> {
 }
 
 pub async fn get_data(State(state): State<Arc<AppState>>) -> Json<Value> {
-    let cached = state.cache.read().await;
-    if let Some(data) = cached.as_ref() {
-        return Json(data.clone());
-    }
-    drop(cached);
-
     match collect_api_data(&state).await {
-        Ok(data) => {
-            let mut cache = state.cache.write().await;
-            *cache = Some(data.clone());
-            Json(data)
-        }
+        Ok(data) => Json(data),
         Err(e) => Json(json!({"error": e}))
     }
 }
