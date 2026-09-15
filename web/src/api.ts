@@ -18,6 +18,11 @@ export async function fetchVideoWindows(mac: string, date: string) {
   return data.windows || [];
 }
 
+export async function fetchWeeklyStats(): Promise<Record<string, Record<string, number>>> {
+  const { data } = await api.get("/weekly-stats");
+  return data.weekly || {};
+}
+
 export async function kidAdjust(mac: string, delta: number) {
   const { data } = await api.post("/kid-adjust", { mac, delta });
   return data;

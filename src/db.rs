@@ -218,6 +218,29 @@ impl Database {
         (active_min, video_min, game_min)
     }
 
+    /// 获取一周内每天每台设备的活跃分钟数
+    pub fn get_weekly_stats(&self) -> Vec<(String, String, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Local::now();
+        let today = now.format("%Y-%m-%d").to_string();
+        // 往前推7天
+        let start = (now - chrono::Duration::days(6)).format("%Y-%m-%d").to_string();
+        let mut rows = conn
+            .prepare(
+                "SELECT date, mac, SUM(CASE WHEN video_status='ACTIVE' THEN 1 ELSE 0 END) as active_min \
+                 FROM video_windows WHERE date >= ?1 AND date <= ?2 \
+                 GROUP BY date, mac ORDER BY date",
+            )
+            .unwrap()
+            .query_map(params![start, today], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    }
+
     // ============ Session 操作 ============
 
     pub fn upsert_session(&self, mac: &str, date: &str, ts: &str, status: &str,

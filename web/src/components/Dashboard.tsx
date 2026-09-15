@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { UserData } from "../types";
-import { fetchData } from "../api";
+import { fetchData, fetchWeeklyStats } from "../api";
 import RealTimeActivity from "./RealTimeActivity";
 
 function MiniBar({
@@ -51,12 +51,14 @@ function deviceColor(name: string) {
 
 export default function Dashboard() {
   const [data, setData] = useState<UserData | null>(null);
+  const [weeklyData, setWeeklyData] = useState<Record<string, Record<string, number>>>({});
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
-      const d = await fetchData();
+      const [d, w] = await Promise.all([fetchData(), fetchWeeklyStats()]);
       setData(d);
+      setWeeklyData(w);
     } catch (e) {
       console.error(e);
     } finally {
@@ -94,15 +96,23 @@ export default function Dashboard() {
   const now = new Date();
   const HHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
-  // 本周使用数据（按设备）
+  // 本周使用数据（按设备 + 真实历史）
   const weekDays = ["日", "一", "二", "三", "四", "五", "六"];
   const today = now.getDay();
+  // 生成本周7天的日期字符串
+  const weekDates: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - today + i);
+    weekDates.push(d.toISOString().slice(0, 10));
+  }
   const weekData = data.devices.map((dev) => {
     const limitMin = Math.round((dev.limit_sec || 7200) / 60);
-    // 简化：用 daily_active_min * 估算（实际项目中应从 API 获取历史数据）
-    const usageMin = Math.round((dev.daily_active_min || 0));
+    // 从 weeklyStats 取每天的活跃分钟数
+    const dailyMins = weekDates.map((date) => weeklyData[date]?.[dev.mac] || 0);
+    const usageMin = dailyMins[today] || Math.round((dev.daily_active_min || 0));
     const over = usageMin > limitMin;
-    return { dev, limitMin, usageMin, over, dc: deviceColor(dev.name) };
+    return { dev, limitMin, usageMin, over, dc: deviceColor(dev.name), dailyMins };
   });
 
   return (
@@ -339,32 +349,27 @@ export default function Dashboard() {
           本周使用概览
         </h3>
         <div className="space-y-4">
-          {weekData.map(({ dev, limitMin, usageMin, dc }) => {
-            const over = usageMin > limitMin;
+          {weekData.map(({ dev, limitMin, dc, dailyMins }) => {
+            const todayMin = dailyMins[today] || 0;
+            const over = todayMin > limitMin;
             return (
               <div key={dev.mac}>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-sm">{dc.icon}</span>
                   <span className="text-sm font-medium" style={{ color: "var(--t1)" }}>{dev.name}</span>
-                  <span className="text-xs" style={{ color: "var(--t3)" }}>{usageMin}min / {limitMin}min</span>
+                  <span className="text-xs" style={{ color: "var(--t3)" }}>{todayMin}min / {limitMin}min</span>
                   {over && <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--err-g)", color: "var(--err)" }}>超限</span>}
                 </div>
               <div className="grid grid-cols-7 gap-1.5">
                 {weekDays.map((day, i) => {
-                  const isToday = i === today;
-                  // 简化展示：今天用实际数据，其他天用灰色占位
-                  const dayUsage = isToday ? usageMin : 0;
-                  const dayOver = dayUsage > limitMin;
-                  const pct = isToday
-                    ? Math.min((dayUsage / limitMin) * 100, 100)
-                    : 0;
+                  const dayMin = dailyMins[i] || 0;
+                  const dayOver = dayMin > limitMin;
+                  const pct = limitMin > 0 ? Math.min((dayMin / limitMin) * 100, 100) : 0;
                   return (
                     <div key={i} className="flex flex-col items-center gap-1">
                       <span
                         className="text-[10px]"
-                        style={{
-                          color: isToday ? "var(--t1)" : "var(--t3)",
-                        }}
+                        style={{ color: i === today ? "var(--t1)" : "var(--t3)" }}
                       >
                         {day}
                       </span>

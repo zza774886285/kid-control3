@@ -31,12 +31,20 @@ pub async fn collect_api_data(state: &AppState) -> Result<Value, String> {
     }
 
     let config = state.config.get_all();
-    let video_windows: Vec<serde_json::Value> = Vec::new();
+    // 查询所有设备今日的 video_windows
+    let mut all_windows = Vec::new();
+    for (mac, _) in &tablets {
+        let mac_upper = mac.to_uppercase();
+        let windows = state.db.get_video_windows(&mac_upper, &today);
+        all_windows.extend(windows.into_iter().map(|w| {
+            serde_json::to_value(w).unwrap_or(serde_json::Value::Null)
+        }));
+    }
 
     Ok(json!({
         "devices": devices,
         "config": config,
-        "video_windows": video_windows,
+        "video_windows": all_windows,
     }))
 }
 
@@ -45,6 +53,16 @@ pub async fn get_data(State(state): State<Arc<AppState>>) -> Json<Value> {
         Ok(data) => Json(data),
         Err(e) => Json(json!({"error": e}))
     }
+}
+
+pub async fn get_weekly_stats(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = state.db.get_weekly_stats();
+    let mut result = serde_json::Map::new();
+    for (date, mac, active_min) in rows {
+        let entry = result.entry(date).or_insert_with(|| json!({}));
+        entry.as_object_mut().unwrap().insert(mac, json!(active_min));
+    }
+    Json(json!({"weekly": result}))
 }
 
 pub async fn get_video_windows(
