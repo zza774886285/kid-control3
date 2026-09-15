@@ -140,6 +140,16 @@ pub struct PointsBalance {
     pub balance: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeeklyQuota {
+    pub id: i64,
+    pub user_id: i64,
+    pub week_start: String,
+    pub tutoring_used: i64,
+    pub homework_used: i64,
+    pub other_used: i64,
+}
+
 // ============ 控制状态 ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

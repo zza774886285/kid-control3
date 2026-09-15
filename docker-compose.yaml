@@ -20,3 +20,7 @@ services:
       TZ: "Asia/Shanghai"
       # 数据库路径（容器内）
       DB_PATH: "/data/kid-control.db"
+      # Telegram 积分审批
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID:-}"
+      HTTP_PROXY: "${HTTP_PROXY:-}"

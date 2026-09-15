@@ -1,5 +1,5 @@
 use serde_json::json;
-use crate::ros::client::RosClient;
+use crate::ros::RosClient;
 use tracing::info;
 
 pub async fn get_address_list_count(client: &RosClient, list_name: &str, ip: &str) -> i32 {
@@ -21,7 +21,7 @@ pub async fn block_ip(client: &RosClient, ip: &str, list_name: &str) {
         "comment": "kid-control3",
     });
     client.put("/ip/firewall/address-list", &body).await;
-    info!("封禁 {} 加入 address-list {}", ip, list_name);
+    info!("IPv4 封禁 {} 加入 address-list {}", ip, list_name);
 }
 
 pub async fn unblock_ip(client: &RosClient, ip: &str, list_name: &str) {
@@ -40,5 +40,5 @@ pub async fn unblock_ip(client: &RosClient, ip: &str, list_name: &str) {
             client.delete(&delete_path).await;
         }
     }
-    info!("解封 {} 从 address-list {}", ip, list_name);
+    info!("IPv4 解封 {} 从 address-list {}", ip, list_name);
 }

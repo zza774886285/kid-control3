@@ -9,6 +9,22 @@ use crate::detector::dns_collector::DnsCollector;
 use crate::config::ConfigManager;
 use crate::db::Database;
 
+/// 统一封禁：IPv4 address-list + IPv6 filter 规则
+async fn block(ros: &RosClient, ip: &str, ipv6_comment: &str, list_name: &str) {
+    fw::block_ip(ros, ip, list_name).await;
+    if !ipv6_comment.is_empty() {
+        ipv6::block_ipv6(ros, ipv6_comment).await;
+    }
+}
+
+/// 统一解封：IPv4 address-list + IPv6 filter 规则
+async fn unblock(ros: &RosClient, ip: &str, ipv6_comment: &str, list_name: &str) {
+    fw::unblock_ip(ros, ip, list_name).await;
+    if !ipv6_comment.is_empty() {
+        ipv6::unblock_ipv6(ros, ipv6_comment).await;
+    }
+}
+
 pub async fn run_control_cycle(
     ros: &RosClient,
     config: &ConfigManager,
@@ -48,7 +64,7 @@ pub async fn run_control_cycle(
             .unwrap_or(false);
         if paused {
             info!("  {}: 大人模式 → 放行", name);
-            fw::unblock_ip(ros, &ip, &block_list).await;
+            unblock(ros, &ip, &tablet.ipv6_comment, &block_list).await;
             continue;
         }
 
@@ -67,35 +83,35 @@ pub async fn run_control_cycle(
 
         if switch_enabled == Some(false) {
             info!("  {}: 开关关闭 → 强制封禁", name);
-            fw::block_ip(ros, &ip, &block_list).await;
+            block(ros, &ip, &tablet.ipv6_comment, &block_list).await;
             continue;
         }
 
         if switch_enabled == Some(true) && !time_block {
             info!("  {}: 开关开启 + {} → 放行", name, if in_window { "允许时段" } else { "非禁止时段" });
-            fw::unblock_ip(ros, &ip, &block_list).await;
+            unblock(ros, &ip, &tablet.ipv6_comment, &block_list).await;
             continue;
         }
 
-        // 检查每日限额
-        let limit_sec = config.get_device_limit(&mac_upper, &day_type);
+        // 检查每日限额（含 override）
+        let limit_sec = config.get_current_limit(&mac_upper, &day_type);
         if limit_sec > 0 {
             let today = now.format("%Y-%m-%d").to_string();
             let (active_min, _, _) = db.get_daily_active_minutes(&mac_upper, &today);
             let usage_sec = active_min * 60;
             if usage_sec >= limit_sec {
                 info!("  {}: 超限 ({}s >= {}s) → 封禁", name, usage_sec, limit_sec);
-                fw::block_ip(ros, &ip, &block_list).await;
+                block(ros, &ip, &tablet.ipv6_comment, &block_list).await;
                 continue;
             }
         }
 
         if time_block {
             info!("  {}: 时间限制 → 封禁", name);
-            fw::block_ip(ros, &ip, &block_list).await;
+            block(ros, &ip, &tablet.ipv6_comment, &block_list).await;
         } else {
             info!("  {}: 允许 → 放行", name);
-            fw::unblock_ip(ros, &ip, &block_list).await;
+            unblock(ros, &ip, &tablet.ipv6_comment, &block_list).await;
         }
     }
 

@@ -393,6 +393,89 @@ impl Database {
         rows.filter_map(|r| r.ok()).collect()
     }
 
+    // ============ 周额度 ============
+
+    /// 返回本周一日期字符串（YYYY-MM-DD）
+    pub fn get_week_start() -> String {
+        use chrono::Datelike;
+        let now = chrono::Local::now();
+        let days_since_monday = now.weekday().num_days_from_monday() as i64;
+        let monday = now - chrono::Duration::days(days_since_monday);
+        monday.format("%Y-%m-%d").to_string()
+    }
+
+    /// 获取本周额度使用情况
+    pub fn get_weekly_quota(&self, user_id: i64) -> Option<crate::models::WeeklyQuota> {
+        let week_start = Self::get_week_start();
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, user_id, week_start, tutoring_used, homework_used, other_used
+             FROM weekly_quota WHERE user_id=?1 AND week_start=?2",
+            params![user_id, week_start],
+            |row| Ok(crate::models::WeeklyQuota {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                week_start: row.get(2)?,
+                tutoring_used: row.get(3)?,
+                homework_used: row.get(4)?,
+                other_used: row.get(5)?,
+            }),
+        ).ok()
+    }
+
+    /// 标记该类型本周已使用
+    pub fn update_weekly_quota(&self, user_id: i64, request_type: &str) {
+        let week_start = Self::get_week_start();
+        let conn = self.conn.lock().unwrap();
+        // UPSERT：不存在则创建
+        conn.execute(
+            "INSERT INTO weekly_quota (user_id, week_start) VALUES (?1, ?2)
+             ON CONFLICT(user_id, week_start) DO NOTHING",
+            params![user_id, week_start],
+        ).unwrap();
+        let col = match request_type {
+            "tutoring" => "tutoring_used",
+            "homework" => "homework_used",
+            _ => "other_used",
+        };
+        conn.execute(
+            &format!("UPDATE weekly_quota SET {}=1 WHERE user_id=?1 AND week_start=?2", col),
+            params![user_id, week_start],
+        ).unwrap();
+    }
+
+    /// 检查某类型本周是否已使用
+    pub fn is_quota_used(&self, user_id: i64, request_type: &str) -> bool {
+        if let Some(quota) = self.get_weekly_quota(user_id) {
+            match request_type {
+                "tutoring" => quota.tutoring_used > 0,
+                "homework" => quota.homework_used > 0,
+                _ => quota.other_used > 0,
+            }
+        } else {
+            false
+        }
+    }
+
+    /// 根据 ID 获取申请详情
+    pub fn get_request_by_id(&self, request_id: i64) -> Option<crate::models::PointRequest> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, user_id, request_type, points, status, admin_note, created_at
+             FROM point_requests WHERE id=?1",
+            params![request_id],
+            |row| Ok(crate::models::PointRequest {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                request_type: row.get(2)?,
+                points: row.get(3)?,
+                status: row.get(4)?,
+                admin_note: row.get(5)?,
+                created_at: row.get(6)?,
+            }),
+        ).ok()
+    }
+
     pub fn get_all_users(&self) -> Vec<crate::models::User> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(

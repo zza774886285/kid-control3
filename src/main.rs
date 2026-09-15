@@ -12,6 +12,7 @@ mod ros;
 mod detector;
 mod scheduler;
 mod api;
+mod telegram;
 
 use config::ConfigManager;
 use db::Database;
@@ -93,14 +94,17 @@ async fn main() {
         .route("/api/switch", post(api::control::switch_device))
         .route("/api/pause", post(api::control::pause_device))
         .route("/api/points/balance", get(api::points::get_points_balance))
-        .route("/api/points/earn", post(api::points::earn_points))
+        .route("/api/points/apply", post(api::points::apply_points))
         .route("/api/points/pending", get(api::points::get_pending_requests))
         .route("/api/points/approve", post(api::points::approve_request))
         .route("/api/points/exchange", post(api::points::exchange_points))
-        .route("/api/points/my", get(api::points::get_my_points));
+        .route("/api/points/my", get(api::points::get_my_points))
+        .route("/api/points/config", get(api::points::get_points_config))
+        .route("/api/points/set", post(api::points::set_points));
 
-    // 静态文件（前端）
-    let static_service = ServeDir::new("web/dist");
+    // 静态文件（前端 SPA，所有非 API 路由回退到 index.html）
+    let static_service = ServeDir::new("web/dist")
+        .fallback(tower_http::services::ServeFile::new("web/dist/index.html"));
 
     let app = Router::new()
         .merge(api_routes)
@@ -131,7 +135,13 @@ async fn main() {
         }
     });
 
-    tokio::spawn(scheduler::cache::refresh_cache_loop(state));
+    tokio::spawn(scheduler::cache::refresh_cache_loop(state.clone()));
+
+    // Telegram 积分审批轮询
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        telegram::poll_telegram_updates(state_clone).await;
+    });
 
     info!("kid-control3 监听 {}", listen_addr);
     let listener = tokio::net::TcpListener::bind(&listen_addr).await.unwrap();

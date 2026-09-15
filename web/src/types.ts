@@ -69,3 +69,16 @@ export interface PointTransaction {
   description: string;
   created_at: string;
 }
+
+export interface PointsConfig {
+  tutoring: number;
+  homework: number;
+  other: number;
+}
+
+export interface User {
+  id: number;
+  username: string;
+  display_name: string;
+  role: string;
+}

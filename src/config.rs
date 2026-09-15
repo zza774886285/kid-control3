@@ -86,15 +86,28 @@ impl ConfigManager {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let override_key = format!("LIMIT_OVERRIDE_{}_{}", mac.to_uppercase(), today);
         if let Some(override_val) = self.get_i64_opt(&override_key) {
-            if override_val > 0 {
-                return override_val;
-            }
+            // override_val >= 0 都是有效值（0 表示用户把时间减到0了）
+            return override_val;
         }
         self.get_device_limit(mac, day_type)
     }
 
     pub fn get_i64_opt(&self, key: &str) -> Option<i64> {
         self.get(key).and_then(|v| v.parse().ok())
+    }
+
+    pub fn get_points_config(&self, tablet_key: &str) -> serde_json::Value {
+        let key = format!("POINTS_CONFIG_{}", tablet_key.to_uppercase());
+        self.get(&key)
+            .and_then(|v| serde_json::from_str(&v).ok())
+            .unwrap_or_else(|| {
+                // 默认配置
+                serde_json::json!({
+                    "tutoring": 60,
+                    "homework": 30,
+                    "other": 30,
+                })
+            })
     }
 
     pub fn is_in_time_window(&self, start_str: &str, end_str: &str) -> bool {

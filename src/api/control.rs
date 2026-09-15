@@ -4,7 +4,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use crate::AppState;
 use crate::ros::firewall as fw;
-use crate::ros::ipv6;
 
 #[derive(Deserialize)]
 pub struct AdjustRequest {
@@ -61,14 +60,23 @@ pub async fn switch_device(
         None => return Json(json!({"ok": false, "error": "设备离线，无法操作"})),
     };
     let block_list = state.config.get("BLOCK_LIST").unwrap_or_else(|| "block-tablet".to_string());
+    // 获取设备的 ipv6_comment
+    let tablets = state.config.get_tablets();
+    let ipv6_comment = tablets.get(&mac_upper)
+        .map(|t| t.ipv6_comment.clone())
+        .unwrap_or_default();
     if req.enabled {
-        // 恢复：从封禁列表移除
+        // 恢复：IPv4 address-list + IPv6 filter 规则
         fw::unblock_ip(&state.ros, &ip, &block_list).await;
-        ipv6::set_ipv6_filter_disabled(&state.ros, &ip, false).await;
+        if !ipv6_comment.is_empty() {
+            crate::ros::ipv6::unblock_ipv6(&state.ros, &ipv6_comment).await;
+        }
     } else {
-        // 断网：加入封禁列表
+        // 断网：IPv4 address-list + IPv6 filter 规则
         fw::block_ip(&state.ros, &ip, &block_list).await;
-        ipv6::set_ipv6_filter_disabled(&state.ros, &ip, true).await;
+        if !ipv6_comment.is_empty() {
+            crate::ros::ipv6::block_ipv6(&state.ros, &ipv6_comment).await;
+        }
     }
     // 同时更新配置状态
     let key = format!("SWITCH_{}", mac_upper);
@@ -107,7 +115,7 @@ pub async fn get_control_status(State(state): State<Arc<AppState>>) -> Json<Valu
             .map(|v| v == "true");
         let (active_min, _, _) = state.db.get_daily_active_minutes(&mac_upper, &today);
         let usage_sec = active_min * 60;
-        let limit_sec = state.config.get_device_limit(&mac_upper, &day_type);
+        let limit_sec = state.config.get_current_limit(&mac_upper, &day_type);
         let block_list = state.config.get("BLOCK_LIST").unwrap_or_else(|| "block-tablet".to_string());
         let blocked = if online {
             let count = fw::get_address_list_count(&state.ros, &block_list, &ip).await;
