@@ -14,7 +14,7 @@ pub async fn collect_api_data(state: &AppState) -> Result<Value, String> {
         let ip = if tablet.ip.is_empty() { mac_ip.get(&mac_upper).cloned().unwrap_or_default() } else { tablet.ip.clone() };
         let online = !ip.is_empty();
         let (active_min, video_min, game_min) = state.db.get_daily_active_minutes(&mac_upper, &today);
-        let limit_sec = state.config.get_device_limit(&mac_upper, &state.config.get_day_type());
+        let limit_sec = state.config.get_current_limit(&mac_upper, &state.config.get_day_type());
         let usage_sec = active_min * 60;
 
         devices.push(json!({
