@@ -55,12 +55,12 @@ impl DnsCollector {
             };
             if pure_ip != ip { continue; }
 
-            // 提取域名
+            // 提取域名，过滤反向DNS查询噪音
             if let Some(domain) = entry.get("query_name").and_then(|v| v.as_str()) {
                 let d = domain.to_lowercase();
-                if !d.is_empty() && !domains.contains(&d) {
-                    domains.push(d);
-                }
+                if d.is_empty() || domains.contains(&d) { continue; }
+                if d.ends_with(".ip6.arpa") || d.ends_with(".in-addr.arpa") { continue; }
+                domains.push(d);
             }
         }
 
