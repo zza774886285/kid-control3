@@ -27,7 +27,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "local-time"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "local-time", "chrono"] }
 
 # Chinese holiday calendar
 chinese_holiday = { version = "2026.0", default-features = true, features = ["chrono-compatible"] }

@@ -149,6 +149,16 @@ export default function PointsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 每10秒自动刷新，解决 Telegram 审批后页面不更新的问题
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadBalances();
+      loadPending();
+      if (currentUserId && currentUserId > 0) loadHistory(currentUserId);
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [currentUserId, loadBalances, loadPending, loadHistory]);
+
   useEffect(() => {
     if (currentUserId && currentUserId > 0) {
       loadHistory(currentUserId);

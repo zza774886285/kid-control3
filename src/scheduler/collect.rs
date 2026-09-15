@@ -95,7 +95,7 @@ pub async fn run_control_cycle(
 
         // 检查每日限额（含 override）
         let limit_sec = config.get_current_limit(&mac_upper, &day_type);
-        if limit_sec > 0 {
+        if limit_sec >= 0 {
             let today = now.format("%Y-%m-%d").to_string();
             let (active_min, _, _) = db.get_daily_active_minutes(&mac_upper, &today);
             let usage_sec = active_min * 60;

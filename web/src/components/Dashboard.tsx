@@ -69,6 +69,22 @@ export default function Dashboard() {
 
   useEffect(() => { reload(); }, []);
 
+  // 每30秒自动刷新首页
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLoading(true);
+      Promise.all([fetchData(), fetchControlStatus()])
+        .then(([data, ctrl]) => {
+          setDevices(data.devices || []);
+          setControls(ctrl.devices || []);
+          setDayType(ctrl.day_type || "");
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
   function getCtrl(mac: string): ControlDevice | undefined {
     return controls.find((c) => c.mac === mac);
   }

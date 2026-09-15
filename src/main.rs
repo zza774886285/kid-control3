@@ -36,6 +36,9 @@ async fn main() {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "kid_control3=info,tower_http=info".into())
         )
+        .with_timer(tracing_subscriber::fmt::time::ChronoLocal::new(
+            "%Y-%m-%d %H:%M:%S".to_string(),
+        ))
         .init();
 
     info!("kid-control3 启动中...");
