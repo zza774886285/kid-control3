@@ -247,10 +247,11 @@ pub async fn set_points(
     });
 
     let conn = state.db.get_conn();
+    let tx_type = if req.points >= 0 { "earn" } else { "spend" };
     conn.execute(
         "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, created_at) \
-         VALUES (?1, 'earn', ?2, ?3, ?4, datetime('now', '+8 hours'))",
-        rusqlite::params![req.user_id, req.points.abs(), new_balance, desc],
+         VALUES (?1, ?2, ?3, ?4, ?5, datetime('now', '+8 hours'))",
+        rusqlite::params![req.user_id, tx_type, req.points.abs(), new_balance, desc],
     ).unwrap();
     drop(conn);
 
