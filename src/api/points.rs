@@ -89,7 +89,7 @@ pub async fn apply_points(
     // 创建 point_requests 记录
     let conn = state.db.get_conn();
     conn.execute(
-        "INSERT INTO point_requests (user_id, request_type, points) VALUES (?1, ?2, ?3)",
+        "INSERT INTO point_requests (user_id, request_type, points, created_at) VALUES (?1, ?2, ?3, datetime('now', '+8 hours'))",
         rusqlite::params![req.user_id, req.request_type, points],
     ).unwrap();
     // 获取刚插入的 request_id
@@ -129,8 +129,8 @@ pub async fn approve_request(
             let new_balance = balance + r.points;
             let conn = state.db.get_conn();
             let _ = conn.execute(
-                "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, request_id) \
-                 VALUES (?1, 'earn', ?2, ?3, ?4, ?5)",
+                "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, request_id, created_at) \
+                 VALUES (?1, 'earn', ?2, ?3, ?4, ?5, datetime('now', '+8 hours'))",
                 rusqlite::params![r.user_id, r.points, new_balance, format!("{} +{}分", r.request_type, r.points), r.id],
             );
             drop(conn);
@@ -173,8 +173,8 @@ pub async fn exchange_points(
             let conn = state.db.get_conn();
             let new_balance = balance - req.points;
             let _ = conn.execute(
-                "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description) \
-                 VALUES (?1, 'exchange', ?2, ?3, ?4)",
+                "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, created_at) \
+                 VALUES (?1, 'exchange', ?2, ?3, ?4, datetime('now', '+8 hours'))",
                 rusqlite::params![req.user_id, req.points, new_balance, format!("兑换{}分钟", minutes)],
             );
             drop(conn);
@@ -247,8 +247,8 @@ pub async fn set_points(
 
     let conn = state.db.get_conn();
     conn.execute(
-        "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description) \
-         VALUES (?1, 'earn', ?2, ?3, ?4)",
+        "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, created_at) \
+         VALUES (?1, 'earn', ?2, ?3, ?4, datetime('now', '+8 hours'))",
         rusqlite::params![req.user_id, req.points.abs(), new_balance, desc],
     ).unwrap();
     drop(conn);

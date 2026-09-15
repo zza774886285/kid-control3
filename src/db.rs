@@ -71,7 +71,7 @@ impl Database {
                 points INTEGER NOT NULL,
                 status TEXT DEFAULT 'pending',
                 admin_note TEXT,
-                created_at TEXT DEFAULT (datetime('now')),
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
                 processed_at TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
@@ -84,7 +84,7 @@ impl Database {
                 balance_after INTEGER NOT NULL,
                 description TEXT,
                 request_id INTEGER,
-                created_at TEXT DEFAULT (datetime('now')),
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
 
@@ -96,7 +96,7 @@ impl Database {
                 tablet_mac TEXT,
                 status TEXT DEFAULT 'pending',
                 error_msg TEXT,
-                created_at TEXT DEFAULT (datetime('now')),
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
 
@@ -324,7 +324,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let status = if action == "approve" { "approved" } else { "rejected" };
         conn.execute(
-            "UPDATE point_requests SET status=?1, admin_note=?2, processed_at=datetime('now') WHERE id=?3",
+            "UPDATE point_requests SET status=?1, admin_note=?2, processed_at=datetime('now', '+8 hours') WHERE id=?3",
             rusqlite::params![status, note, request_id],
         ).unwrap();
         if action == "approve" {
@@ -343,8 +343,8 @@ impl Database {
                 ).unwrap_or(0);
                 let new_balance = balance + points;
                 conn.execute(
-                    "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, request_id)
-                     VALUES (?1, 'earn', ?2, ?3, ?4, ?5)",
+                    "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, request_id, created_at)
+                     VALUES (?1, 'earn', ?2, ?3, ?4, ?5, datetime('now', '+8 hours'))",
                     rusqlite::params![user_id, points, new_balance, format!("{}积分", req_type), request_id],
                 ).unwrap();
             }
@@ -362,13 +362,13 @@ impl Database {
         ).unwrap_or(0);
         let new_balance = balance - points;
         conn.execute(
-            "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description)
-             VALUES (?1, 'exchange', ?2, ?3, ?4)",
+            "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, created_at)
+             VALUES (?1, 'exchange', ?2, ?3, ?4, datetime('now', '+8 hours'))",
             rusqlite::params![user_id, points, new_balance, format!("兑换{}分钟平板时间", minutes)],
         ).unwrap();
         conn.execute(
-            "INSERT INTO point_exchanges (user_id, points_spent, minutes_granted, tablet_mac, status)
-             VALUES (?1, ?2, ?3, ?4, 'success')",
+            "INSERT INTO point_exchanges (user_id, points_spent, minutes_granted, tablet_mac, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, 'success', datetime('now', '+8 hours'))",
             rusqlite::params![user_id, points, minutes, mac],
         ).unwrap();
     }
