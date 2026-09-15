@@ -132,7 +132,7 @@ export default function Dashboard() {
 
       {/* 设备卡片网格 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {data.devices.map((dev) => {
+        {[...data.devices].sort((a, b) => a.name.localeCompare(b.name, "zh")).map((dev) => {
           const dc = deviceColor(dev.name);
           const limitMin = Math.round((dev.limit_sec || 7200) / 60);
           const usageMin = Math.round((dev.usage_sec || 0) / 60);

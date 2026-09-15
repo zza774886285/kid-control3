@@ -6,17 +6,23 @@ interface Props {
 }
 
 const ACTIVITY_MAP: Record<string, { label: string; icon: string; color: string }> = {
-  xiaohongshu: { label: "小红书", icon: "📕", color: "#ff2442" },
-  douyin:     { label: "抖音",   icon: "🎵", color: "#111" },
-  bilibili:   { label: "B站",    icon: "📺", color: "#00aeec" },
-  weixin:     { label: "微信",   icon: "💬", color: "#07c160" },
-  qq:         { label: "QQ",     icon: "🐧", color: "#12b7f5" },
-  game:       { label: "游戏",   icon: "🎮", color: "#a855f7" },
-  video:      { label: "视频",   icon: "🎬", color: "#3b82f6" },
-  supernatural: { label: "超自然", icon: "👻", color: "#8b5cf6" },
-  idle:       { label: "空闲",   icon: "😴", color: "#64748b" },
-  none:       { label: "空闲",   icon: "😴", color: "#64748b" },
-  other:      { label: "其他",   icon: "📱", color: "#94a3b8" },
+  // 具体应用
+  xiaohongshu:       { label: "小红书",   icon: "📕", color: "#ff2442" },
+  game_egg:          { label: "蛋仔派对", icon: "🥚", color: "#f59e0b" },
+  game_preternatural:{ label: "超自然",   icon: "👻", color: "#8b5cf6" },
+  tencent_video:     { label: "腾讯视频", icon: "🎬", color: "#3b82f6" },
+  hongguo:           { label: "红果短剧", icon: "🍊", color: "#f97316" },
+  douyin:            { label: "抖音",     icon: "🎵", color: "#111" },
+  bilibili:          { label: "B站",      icon: "📺", color: "#00aeec" },
+  weixin:            { label: "微信",     icon: "💬", color: "#07c160" },
+  qq:                { label: "QQ",       icon: "🐧", color: "#12b7f5" },
+  // 通用分类
+  game:              { label: "游戏",     icon: "🎮", color: "#a855f7" },
+  video:             { label: "视频",     icon: "🎬", color: "#3b82f6" },
+  other:             { label: "其他",     icon: "📱", color: "#94a3b8" },
+  // 空闲
+  idle:              { label: "空闲",     icon: "😴", color: "#64748b" },
+  none:              { label: "空闲",     icon: "😴", color: "#64748b" },
 };
 
 function classify(activityType: string): { label: string; icon: string; color: string } {
@@ -31,32 +37,58 @@ export default function RealTimeActivity({ windows, devices }: Props) {
   const now = new Date();
   const HHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
+  // 构建 HHMM -> activity_type 映射，用于快速查找
+  const timeMap = new Map<string, string>();
+  for (const w of windows) {
+    // ts 格式: "2026-09-15T21:07:00" -> 提取 "21:07"
+    const match = w.ts.match(/T(\d{2}:\d{2})/);
+    if (match) {
+      const key = `${w.mac}|${match[1]}`;
+      timeMap.set(key, w.activity_type);
+    }
+  }
+
   const deviceActivities = devices.map((dev) => {
-    const devWindows = windows.filter((w) => w.mac === dev.mac);
+    // 找当前分钟的活动
+    let activityType = timeMap.get(`${dev.mac}|${HHMM}`);
 
-    // 优先找当前正在进行的窗口
-    let recent = devWindows
-      .filter((w) => w.start_time <= HHMM && w.end_time >= HHMM)
-      .sort((a, b) => b.start_time.localeCompare(a.start_time))[0];
-
-    // 如果没有当前窗口，找最近一个非空闲窗口（30分钟内）
-    if (!recent) {
-      recent = devWindows
-        .filter((w) => w.activity_type !== "none" && w.activity_type !== "idle")
-        .sort((a, b) => b.end_time.localeCompare(a.end_time))[0];
+    // 如果当前分钟没数据，往前找最近3分钟
+    if (!activityType) {
+      const [h, m] = HHMM.split(":").map(Number);
+      for (let i = 1; i <= 3; i++) {
+        let mins = m - i;
+        let hours = h;
+        if (mins < 0) { mins += 60; hours -= 1; }
+        if (hours < 0) hours += 24;
+        const prev = `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+        const found = timeMap.get(`${dev.mac}|${prev}`);
+        if (found && found !== "none") {
+          activityType = found;
+          break;
+        }
+      }
     }
 
-    const act = recent ? classify(recent.activity_type) : ACTIVITY_MAP.idle;
-    const isActive = recent && recent.activity_type !== "none" && recent.activity_type !== "idle";
+    // 如果还没找到，取今天该设备最近一个非空闲记录
+    if (!activityType || activityType === "none") {
+      for (const w of windows) {
+        if (w.mac === dev.mac && w.activity_type !== "none" && w.activity_type !== "idle") {
+          activityType = w.activity_type;
+          break;
+        }
+      }
+    }
 
-    return { ...dev, activity: act, isActive, activityType: recent?.activity_type || "none" };
+    const act = classify(activityType || "none");
+    const isActive = activityType && activityType !== "none" && activityType !== "idle";
+
+    return { ...dev, activity: act, isActive, activityType: activityType || "none" };
   });
 
   const anyActive = deviceActivities.some((d) => d.isActive);
 
   return (
     <div className="rounded-2xl p-5 transition-all duration-300 glass glow-border">
-      {/* 标题栏 */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -68,29 +100,23 @@ export default function RealTimeActivity({ windows, devices }: Props) {
               />
             )}
           </div>
-          <h3
-            className="text-sm font-semibold tracking-wide uppercase"
-            style={{ color: "var(--t1)" }}
-          >
+          <h3 className="text-sm font-semibold tracking-wide uppercase" style={{ color: "var(--t1)" }}>
             实时活动
           </h3>
         </div>
         <span className="text-xs font-mono" style={{ color: "var(--t3)" }}>{HHMM}</span>
       </div>
 
-      {/* 设备列表 */}
       <div className="space-y-3">
         {deviceActivities.map((dev) => {
-          // 判断设备色
           const isHw = dev.name.includes("华为");
           const devColor = isHw ? "var(--hw)" : "var(--ip)";
 
           return (
             <div key={dev.mac} className="flex items-center gap-3">
-              {/* 应用图标 + 发光环 */}
               <div className="relative flex-shrink-0">
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg transition-all duration-300 ${dev.isActive ? "" : ""}`}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-lg transition-all duration-300"
                   style={
                     dev.isActive
                       ? { background: `${devColor}20`, border: `1px solid ${devColor}40` }
@@ -99,7 +125,6 @@ export default function RealTimeActivity({ windows, devices }: Props) {
                 >
                   {dev.activity.icon}
                 </div>
-                {/* 活跃发光环 */}
                 {dev.isActive && (
                   <>
                     <div
@@ -122,7 +147,6 @@ export default function RealTimeActivity({ windows, devices }: Props) {
                 )}
               </div>
 
-              {/* 设备信息 */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium" style={{ color: "var(--t1)" }}>
@@ -146,7 +170,6 @@ export default function RealTimeActivity({ windows, devices }: Props) {
                 )}
               </div>
 
-              {/* 在线状态 */}
               <div
                 className="text-xs font-mono"
                 style={{ color: dev.online ? "var(--ok)" : "var(--t3)" }}

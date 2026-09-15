@@ -121,7 +121,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-2xl mx-auto">
       <h2 className="text-xl font-bold tracking-tight" style={{ color: "var(--t1)" }}>
         ⚙️ 设置
       </h2>

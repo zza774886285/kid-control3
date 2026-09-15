@@ -217,16 +217,25 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
           {hideAdmin ? "⭐ 我的积分" : "⭐ 积分系统"}
         </h2>
         {balances.filter((b) => b.username !== "admin").length > 1 && (
-          <div className="flex items-center gap-1 rounded-full p-1" style={{ background: "rgba(255,255,255,0.05)" }}>
+          <div className="flex gap-3 p-2 rounded-2xl" style={{ background: "rgba(255,255,255,0.05)" }}>
             {balances.filter((b) => b.username !== "admin").map((b) => (
               <button
                 key={b.user_id}
                 onClick={() => switchRole(b.user_id, b.username)}
-                className="px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer"
+                className="flex-1 px-6 py-3 rounded-xl text-base font-bold transition-all duration-300 cursor-pointer"
                 style={
                   currentUserId === b.user_id
-                    ? { background: "rgba(255,255,255,0.1)", color: "var(--t1)" }
-                    : { color: "var(--t3)" }
+                    ? {
+                        background: "linear-gradient(135deg, #8b5cf6, #6366f1)",
+                        color: "#fff",
+                        boxShadow: "0 4px 16px rgba(99,102,241,0.4)",
+                        transform: "scale(1.05)",
+                      }
+                    : {
+                        background: "rgba(255,255,255,0.06)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        color: "var(--t2)",
+                      }
                 }
               >
                 {b.display_name}

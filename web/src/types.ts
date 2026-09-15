@@ -12,12 +12,10 @@ export interface Device {
 
 export interface VideoWindow {
   id: number;
-  mac: string;
+  ts: string;
   date: string;
-  start_time: string;
-  end_time: string;
+  mac: string;
   activity_type: string;
-  device_name: string;
 }
 
 export interface UserData {
