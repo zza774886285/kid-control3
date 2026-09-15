@@ -8,7 +8,6 @@ use crate::AppState;
 pub struct ApplyPointsRequest {
     pub user_id: i64,
     pub request_type: String,
-    pub points: i64,
 }
 
 #[derive(Deserialize)]
@@ -49,6 +48,7 @@ pub async fn get_points_balance(State(state): State<Arc<AppState>>) -> Json<Valu
 }
 
 /// POST /api/points/apply — 孩子申请积分（检查周额度 + 发 Telegram 通知）
+/// 积分值由 request_type + 设备积分配置自动确定
 pub async fn apply_points(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ApplyPointsRequest>,
@@ -56,11 +56,6 @@ pub async fn apply_points(
     // 校验 request_type
     if !["tutoring", "homework", "other"].contains(&req.request_type.as_str()) {
         return Json(json!({ "ok": false, "error": "无效的申请类型" }));
-    }
-
-    // 校验积分值 > 0
-    if req.points <= 0 {
-        return Json(json!({ "ok": false, "error": "积分必须大于 0" }));
     }
 
     // 检查本周额度（每种类型每周只能申请一次）
@@ -74,11 +69,28 @@ pub async fn apply_points(
         None => return Json(json!({ "ok": false, "error": "用户不存在" })),
     };
 
+    // 从积分配置获取该类型对应的积分值
+    let points = if let Some(tablet_key) = &user.tablet_key {
+        let config = state.config.get_points_config(tablet_key);
+        match req.request_type.as_str() {
+            "tutoring" => config["tutoring"].as_i64().unwrap_or(60),
+            "homework" => config["homework"].as_i64().unwrap_or(30),
+            "other" => config["other"].as_i64().unwrap_or(30),
+            _ => 30,
+        }
+    } else {
+        30 // 未绑定设备时的默认值
+    };
+
+    if points <= 0 {
+        return Json(json!({ "ok": false, "error": "积分配置无效" }));
+    }
+
     // 创建 point_requests 记录
     let conn = state.db.get_conn();
     conn.execute(
         "INSERT INTO point_requests (user_id, request_type, points) VALUES (?1, ?2, ?3)",
-        rusqlite::params![req.user_id, req.request_type, req.points],
+        rusqlite::params![req.user_id, req.request_type, points],
     ).unwrap();
     // 获取刚插入的 request_id
     let request_id: i64 = conn.query_row(
@@ -91,12 +103,11 @@ pub async fn apply_points(
     // 异步发送 Telegram 通知（fire and forget）
     let child_name = user.display_name.clone();
     let req_type = req.request_type.clone();
-    let pts = req.points;
     tokio::spawn(async move {
-        crate::telegram::send_approval_request(&child_name, &req_type, pts, request_id).await;
+        crate::telegram::send_approval_request(&child_name, &req_type, points, request_id).await;
     });
 
-    Json(json!({ "ok": true, "message": "积分申请已提交，等待管理员审批", "request_id": request_id }))
+    Json(json!({ "ok": true, "message": "积分申请已提交，等待管理员审批", "request_id": request_id, "points": points }))
 }
 
 /// POST /api/points/approve — 管理员审批（HTTP 路径，备用）
@@ -107,10 +118,22 @@ pub async fn approve_request(
     if req.action != "approve" && req.action != "reject" {
         return Json(json!({ "ok": false, "error": "无效操作" }));
     }
-    // 如果是 approve，先更新 weekly_quota
-    if req.action == "approve" {
-        if let Some(r) = state.db.get_request_by_id(req.request_id) {
+    // 获取申请详情
+    let request_info = state.db.get_request_by_id(req.request_id);
+    if let Some(ref r) = request_info {
+        if req.action == "approve" {
+            // 更新 weekly_quota
             state.db.update_weekly_quota(r.user_id, &r.request_type);
+            // 记录积分交易（earn）
+            let balance = state.db.get_user_points_balance(r.user_id);
+            let new_balance = balance + r.points;
+            let conn = state.db.get_conn();
+            let _ = conn.execute(
+                "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, request_id) \
+                 VALUES (?1, 'earn', ?2, ?3, ?4, ?5)",
+                rusqlite::params![r.user_id, r.points, new_balance, format!("{} +{}分", r.request_type, r.points), r.id],
+            );
+            drop(conn);
         }
     }
     state.db.approve_request(req.request_id, &req.action, req.note.as_deref());
@@ -145,6 +168,16 @@ pub async fn exchange_points(
             let key = format!("LIMIT_OVERRIDE_{}_{}", mac.to_uppercase(),
                 chrono::Local::now().format("%Y-%m-%d"));
             let _ = state.config.set(&key, &new_val.to_string());
+
+            // 扣除积分（记录负数交易）
+            let conn = state.db.get_conn();
+            let new_balance = balance - req.points;
+            let _ = conn.execute(
+                "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description) \
+                 VALUES (?1, 'exchange', ?2, ?3, ?4)",
+                rusqlite::params![req.user_id, req.points, new_balance, format!("兑换{}分钟", minutes)],
+            );
+            drop(conn);
 
             state.db.record_exchange(req.user_id, req.points, minutes, &mac);
 
@@ -214,7 +247,7 @@ pub async fn set_points(
 
     let conn = state.db.get_conn();
     conn.execute(
-        "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description)
+        "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description) \
          VALUES (?1, 'earn', ?2, ?3, ?4)",
         rusqlite::params![req.user_id, req.points.abs(), new_balance, desc],
     ).unwrap();
