@@ -32,16 +32,14 @@ pub async fn kid_adjust(
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let key = format!("LIMIT_OVERRIDE_{}_{}", mac_upper, today);
 
-    let current: i64 = state.config.get(&key)
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-
-    let new_val = (current + req.delta).max(0);
     let day_type = state.config.get_day_type();
-    if new_val == 0 {
-        // 值为0时删除 override，回退到基础限额
+    let current = state.config.get_current_limit(&mac_upper, &day_type);
+    let new_val = (current + req.delta).max(0);
+    let base_limit = state.config.get_device_limit(&mac_upper, &day_type);
+
+    if new_val == base_limit {
+        // 等于基础限额时删除 override
         let _ = state.config.delete(&key);
-        let base_limit = state.config.get_device_limit(&mac_upper, &day_type);
         Json(json!({"ok": true, "new_limit_sec": base_limit}))
     } else {
         match state.config.set(&key, &new_val.to_string()) {

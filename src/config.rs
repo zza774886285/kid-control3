@@ -73,18 +73,24 @@ impl ConfigManager {
         (start, end)
     }
 
+    /// 基础限额（不含 override），用于状态显示和比较
     pub fn get_device_limit(&self, mac: &str, day_type: &str) -> i64 {
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let override_key = format!("LIMIT_OVERRIDE_{}_{}", mac.to_uppercase(), today);
-        // 优先读设备级今日覆盖值（秒）
-        if let Some(override_val) = self.get_i64_opt(&override_key) {
-            if override_val > 0 { return override_val; }
-        }
-        // 否则读工作日/周末/假期限额（分钟）
         let key = format!("{}_LIMIT", day_type.to_uppercase());
         let default_limit = self.get_i64("DEFAULT_LIMIT", 70);
         let limit = self.get_i64(&key, default_limit);
-        limit * 60  // 分钟转秒
+        limit * 60 // 分钟转秒
+    }
+
+    /// 当前实际限额（含 override），用于 adjust 计算
+    pub fn get_current_limit(&self, mac: &str, day_type: &str) -> i64 {
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let override_key = format!("LIMIT_OVERRIDE_{}_{}", mac.to_uppercase(), today);
+        if let Some(override_val) = self.get_i64_opt(&override_key) {
+            if override_val > 0 {
+                return override_val;
+            }
+        }
+        self.get_device_limit(mac, day_type)
     }
 
     pub fn get_i64_opt(&self, key: &str) -> Option<i64> {
