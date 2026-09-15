@@ -2,6 +2,7 @@ use std::sync::Arc;
 use axum::{Json, extract::State};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tracing::warn;
 use crate::AppState;
 
 #[derive(Deserialize)]
@@ -88,10 +89,14 @@ pub async fn apply_points(
 
     // 创建 point_requests 记录
     let conn = state.db.get_conn();
-    conn.execute(
+    let insert_result = conn.execute(
         "INSERT INTO point_requests (user_id, request_type, points, created_at) VALUES (?1, ?2, ?3, datetime('now', '+8 hours'))",
         rusqlite::params![req.user_id, req.request_type, points],
-    ).unwrap();
+    );
+    if let Err(e) = insert_result {
+        warn!("apply_points INSERT 失败: {}", e);
+        return Json(json!({ "ok": false, "error": format!("申请失败: {}", e) }));
+    }
     // 获取刚插入的 request_id
     let request_id: i64 = conn.query_row(
         "SELECT last_insert_rowid()",

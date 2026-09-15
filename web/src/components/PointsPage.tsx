@@ -79,6 +79,7 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
   const [history, setHistory] = useState<PointTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [appliedType, setAppliedType] = useState<string | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   // Current user: read from localStorage, default to first kid
   const [currentUserId, setCurrentUserId] = useState<number>(() => {
@@ -184,12 +185,18 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
   // ── 操作 ─────────────────────────────────────────────────
   async function handleApply(requestType: string) {
     try {
-      await applyPoints(currentUserId, requestType);
+      const res = await applyPoints(currentUserId, requestType);
+      if (res.ok === false) {
+        setApplyError(res.error || "申请失败");
+        setTimeout(() => setApplyError(null), 5000);
+        return;
+      }
       setAppliedType(requestType);
       setTimeout(() => setAppliedType(null), 3000);
       loadPending();
-    } catch (e) {
-      console.error("申请失败:", e);
+    } catch (e: any) {
+      setApplyError(e.message || "申请失败");
+      setTimeout(() => setApplyError(null), 5000);
     }
   }
 
@@ -262,6 +269,7 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
           history={history}
           pendingRequests={pendingRequests.filter((r) => r.user_id === currentUserId)}
           appliedType={appliedType}
+          applyError={applyError}
           onApply={handleApply}
           onExchange={handleExchange}
         />
@@ -291,11 +299,12 @@ interface ChildViewProps {
   history: PointTransaction[];
   pendingRequests: PointRequest[];
   appliedType: string | null;
-  onApply: (type: string) => void;
+  applyError: string | null;
+  onApply: (requestType: string) => void;
   onExchange: (points: number) => void;
 }
 
-function ChildView({ balance, config, history, pendingRequests, appliedType, onApply, onExchange }: ChildViewProps) {
+function ChildView({ balance, config, history, pendingRequests, appliedType, applyError, onApply, onExchange }: ChildViewProps) {
   const pointsMap: Record<string, number> = { tutoring: config.tutoring, homework: config.homework, other: config.other };
 
   return (
@@ -344,6 +353,11 @@ function ChildView({ balance, config, history, pendingRequests, appliedType, onA
             );
           })}
         </div>
+        {applyError && (
+          <div className="mt-3 text-sm text-rose-400 text-center animate-pulse">
+            ❌ {applyError}
+          </div>
+        )}
       </div>
 
       {/* ─── 兑换时间 ─── */}
