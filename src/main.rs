@@ -19,6 +19,7 @@ use db::Database;
 use ros::RosClient;
 use detector::activity::ActivityDetector;
 use detector::dns_collector::DnsCollector;
+use detector::ip_registry::GameIpRegistry;
 
 pub struct AppState {
     pub db: Arc<Database>,
@@ -27,6 +28,8 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub detector: ActivityDetector,
     pub dns_collector: DnsCollector,
+    pub ip_registry: Arc<RwLock<GameIpRegistry>>,
+    pub registry_path: std::path::PathBuf,
     pub cache: RwLock<Option<serde_json::Value>>,
 }
 
@@ -68,6 +71,15 @@ async fn main() {
     let detector = ActivityDetector::new();
     let dns_collector = DnsCollector::new(&mosdns_url);
 
+    // 游戏 IP 注册表
+    let registry_path = std::path::PathBuf::from(
+        std::env::var("GAME_IP_REGISTRY").unwrap_or_else(|_| "/data/game-ips.json".to_string())
+    );
+    let ip_registry = Arc::new(RwLock::new(GameIpRegistry::load(&registry_path)));
+    info!("游戏IP注册表已加载: {}条IP, {}个域名模式",
+        ip_registry.read().await.ips.len(),
+        ip_registry.read().await.domains.len());
+
     // 初始化默认用户
     {
         let conn = db.get_conn();
@@ -90,6 +102,8 @@ async fn main() {
             .unwrap_or_default(),
         detector,
         dns_collector,
+        ip_registry: ip_registry.clone(),
+        registry_path: registry_path.clone(),
         cache: RwLock::new(None),
     });
 
@@ -112,7 +126,10 @@ async fn main() {
         .route("/api/points/my", get(api::points::get_my_points))
         .route("/api/points/config", get(api::points::get_points_config))
         .route("/api/points/recent", get(api::points::get_recent_transactions))
-        .route("/api/points/set", post(api::points::set_points));
+        .route("/api/points/set", post(api::points::set_points))
+        .route("/api/game-ips", get(api::game_ips::get_game_ips))
+        .route("/api/game-ips/ip", post(api::game_ips::add_game_ip).delete(api::game_ips::remove_game_ip))
+        .route("/api/game-ips/domain", post(api::game_ips::add_game_domain).delete(api::game_ips::remove_game_domain));
 
     // Admin 静态文件（web/dist/，fallback 到 index.html）
     let admin_static_service = ServeDir::new("web/dist")
@@ -150,6 +167,7 @@ async fn main() {
             scheduler::collect::run_data_collection(
                 &state_clone.ros, &state_clone.config, &state_clone.db,
                 &state_clone.http_client, &state_clone.detector, &state_clone.dns_collector,
+                &state_clone.ip_registry, &state_clone.registry_path,
             ).await;
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }

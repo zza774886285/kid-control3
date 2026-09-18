@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { fetchSettings, postSettings, setVacation } from "../api";
+import { fetchSettings, postSettings, setVacation, fetchGameIps, addGameIp, removeGameIp, addGameDomain, removeGameDomain } from "../api";
+import type { GameIpEntry } from "../types";
 
 interface TabletInfo {
   name: string;
@@ -10,6 +11,154 @@ interface TabletInfo {
 
 const glassInput =
   "w-full rounded-xl px-3 py-1.5 text-sm outline-none transition-all duration-200";
+
+function GameIpManager() {
+  const [domains, setDomains] = useState<string[]>([]);
+  const [ips, setIps] = useState<GameIpEntry[]>([]);
+  const [newIp, setNewIp] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+  const [newDomain, setNewDomain] = useState("");
+  const [msg, setMsg] = useState("");
+
+  async function reload() {
+    try {
+      const data = await fetchGameIps();
+      setDomains(data.domains);
+      setIps(data.ips);
+    } catch (e) {
+      console.error("加载游戏IP表失败:", e);
+    }
+  }
+  useEffect(() => { reload(); }, []);
+
+  function flash(text: string) {
+    setMsg(text);
+    setTimeout(() => setMsg(""), 2000);
+  }
+
+  async function handleAddIp() {
+    if (!newIp.trim()) return;
+    const res = await addGameIp(newIp.trim(), newLabel.trim() || undefined);
+    flash(res.message);
+    if (res.ok) { setNewIp(""); setNewLabel(""); reload(); }
+  }
+
+  async function handleRemoveIp(addr: string) {
+    const res = await removeGameIp(addr);
+    flash(res.message);
+    if (res.ok) reload();
+  }
+
+  async function handleAddDomain() {
+    if (!newDomain.trim()) return;
+    const res = await addGameDomain(newDomain.trim());
+    flash(res.message);
+    if (res.ok) { setNewDomain(""); reload(); }
+  }
+
+  async function handleRemoveDomain(domain: string) {
+    const res = await removeGameDomain(domain);
+    flash(res.message);
+    if (res.ok) reload();
+  }
+
+  const manualIps = ips.filter(i => i.source === "manual");
+  const autoIps = ips.filter(i => i.source === "auto");
+
+  return (
+    <div className="rounded-2xl glass p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold" style={{ color: "var(--t1)" }}>🎮 游戏识别</h3>
+        {msg && <span className="text-xs" style={{ color: "var(--t2)" }}>{msg}</span>}
+      </div>
+
+      {/* 域名模式 */}
+      <div className="mb-4">
+        <label className="text-xs block mb-2" style={{ color: "var(--t3)" }}>域名模式（匹配则判定为游戏）</label>
+        <div className="flex flex-wrap gap-2 mb-2">
+          {domains.map(d => (
+            <span key={d} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full"
+              style={{ background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.3)", color: "#a78bfa" }}>
+              {d}
+              <button onClick={() => handleRemoveDomain(d)} className="ml-1 cursor-pointer hover:opacity-70">×</button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input value={newDomain} onChange={e => setNewDomain(e.target.value)}
+            placeholder="*.example.com"
+            className={`flex-1 ${glassInput}`}
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "var(--t1)" }}
+            onKeyDown={e => e.key === "Enter" && handleAddDomain()} />
+          <button onClick={handleAddDomain}
+            className="text-xs px-3 py-1 rounded-full cursor-pointer"
+            style={{ background: "var(--acc-g2)", border: "1px solid var(--acc-g)", color: "var(--acc)" }}>
+            + 域名
+          </button>
+        </div>
+      </div>
+
+      {/* 手动添加的 IP */}
+      <div className="mb-4">
+        <label className="text-xs block mb-2" style={{ color: "var(--t3)" }}>手动添加的 IP/CIDR</label>
+        <div className="space-y-1.5 mb-2">
+          {manualIps.map(ip => (
+            <div key={ip.addr} className="flex items-center justify-between text-xs px-3 py-1.5 rounded-lg"
+              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="flex items-center gap-2">
+                <span className="font-mono" style={{ color: "var(--t1)" }}>{ip.addr}</span>
+                {ip.label && <span style={{ color: "var(--t3)" }}>({ip.label})</span>}
+              </div>
+              <button onClick={() => handleRemoveIp(ip.addr)}
+                className="cursor-pointer transition-colors" style={{ color: "rgba(239,68,68,0.6)" }}>删除</button>
+            </div>
+          ))}
+          {manualIps.length === 0 && (
+            <div className="text-xs text-center py-2" style={{ color: "var(--t3)" }}>暂无手动 IP</div>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <input value={newIp} onChange={e => setNewIp(e.target.value)}
+            placeholder="IP 或 CIDR（如 1.2.3.4 或 10.0.0.0/24）"
+            className={`flex-1 ${glassInput}`}
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "var(--t1)" }}
+            onKeyDown={e => e.key === "Enter" && handleAddIp()} />
+          <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
+            placeholder="备注（可选）"
+            className={`w-28 ${glassInput}`}
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "var(--t1)" }} />
+          <button onClick={handleAddIp}
+            className="text-xs px-3 py-1 rounded-full cursor-pointer"
+            style={{ background: "var(--acc-g2)", border: "1px solid var(--acc-g)", color: "var(--acc)" }}>
+            + IP
+          </button>
+        </div>
+      </div>
+
+      {/* 自动发现的 IP */}
+      {autoIps.length > 0 && (
+        <div>
+          <label className="text-xs block mb-2" style={{ color: "var(--t3)" }}>
+            自动发现（{autoIps.length} 条，来自 DNS 和连接表）
+          </label>
+          <div className="space-y-1.5">
+            {autoIps.map(ip => (
+              <div key={ip.addr} className="flex items-center justify-between text-xs px-3 py-1.5 rounded-lg"
+                style={{ background: "rgba(16,185,129,0.05)", border: "1px solid rgba(16,185,129,0.1)" }}>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono" style={{ color: "var(--t1)" }}>{ip.addr}</span>
+                  {ip.first_seen && <span style={{ color: "var(--t3)" }}>{ip.first_seen}</span>}
+                </div>
+                <button onClick={() => handleRemoveIp(ip.addr)}
+                  className="cursor-pointer transition-colors" style={{ color: "rgba(239,68,68,0.6)" }}>删除</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -298,6 +447,9 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* 游戏 IP 管理 */}
+      <GameIpManager />
 
       {/* 保存按钮 */}
       <div className="flex items-center gap-3">

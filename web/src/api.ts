@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { UserData, ControlStatus, PointsBalance, PointRequest, PointTransaction, PointsConfig, User } from "./types";
+import type { UserData, ControlStatus, PointsBalance, PointRequest, PointTransaction, PointsConfig, User, GameIpListResponse, OpResponse } from "./types";
 
 const api = axios.create({ baseURL: "/api" });
 
@@ -107,5 +107,31 @@ export async function fetchRecentTransactions(): Promise<PointTransaction[]> {
 
 export async function setPoints(userId: number, points: number, description?: string) {
   const { data } = await api.post("/points/set", { user_id: userId, points, description });
+  return data;
+}
+
+// Game IP Registry API
+export async function fetchGameIps(): Promise<GameIpListResponse> {
+  const { data } = await api.get<GameIpListResponse>("/game-ips");
+  return data;
+}
+
+export async function addGameIp(addr: string, label?: string): Promise<OpResponse> {
+  const { data } = await api.post<OpResponse>("/game-ips/ip", { addr, label });
+  return data;
+}
+
+export async function removeGameIp(addr: string): Promise<OpResponse> {
+  const { data } = await api.delete<OpResponse>("/game-ips/ip", { data: { addr } });
+  return data;
+}
+
+export async function addGameDomain(domain: string): Promise<OpResponse> {
+  const { data } = await api.post<OpResponse>("/game-ips/domain", { domain });
+  return data;
+}
+
+export async function removeGameDomain(domain: string): Promise<OpResponse> {
+  const { data } = await api.delete<OpResponse>("/game-ips/domain", { data: { domain } });
   return data;
 }

@@ -61,6 +61,8 @@ impl ActivityDetector {
 
     pub fn detect_and_record(&self, mac: &str, ip: &str, ts: f64,
         dns_domains: Vec<String>, conn_count: i32, bytes_delta: i64,
+        dst_ips: &[String],
+        ip_registry: &crate::detector::ip_registry::GameIpRegistry,
         db: &crate::db::Database) -> crate::models::ActivityResult
     {
         let minute_ts = format_time(ts);
@@ -73,11 +75,12 @@ impl ActivityDetector {
 
         let has_traffic = bytes_delta > BW_THRESHOLD;
         let has_conns = conn_count >= CONN_THRESHOLD;
-        // 信号判定：DNS 命中即可，不需要同时满足流量/连接数
-        // 因为长连接 App（小红书等）建立连接后不再查 DNS，但有 DNS 就说明在用
-        let signal = has_dns;
+        // 连接表信号：目标 IP 匹配游戏 IP 注册表
+        let has_game_conn = dst_ips.iter().any(|ip| ip_registry.is_game_ip(ip));
+        // 双信号：DNS 命中 或 连接表命中游戏 IP
+        let signal = has_dns || has_game_conn;
 
-        let is_silent = bytes_delta < IDLE_TRAFFIC && !has_dns && conn_count < CONN_THRESHOLD;
+        let is_silent = bytes_delta < IDLE_TRAFFIC && !has_dns && !has_game_conn && conn_count < CONN_THRESHOLD;
 
         let mut states = self.states.lock().unwrap();
         let state = states.entry(mac.to_string()).or_insert_with(|| DeviceState {

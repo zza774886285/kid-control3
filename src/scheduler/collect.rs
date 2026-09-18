@@ -1,13 +1,16 @@
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use tracing::{info, error, debug};
 use tokio::sync::RwLock;
 use crate::ros::RosClient;
 use crate::ros::arp::get_mac_ip_map;
+use crate::ros::connections::get_device_connections;
 use crate::ros::firewall as fw;
 use crate::ros::ipv6;
 use crate::detector::activity::ActivityDetector;
 use crate::detector::dns_collector::DnsCollector;
+use crate::detector::ip_registry::GameIpRegistry;
 use crate::config::ConfigManager;
 use crate::db::Database;
 
@@ -152,27 +155,44 @@ pub async fn run_data_collection(
     http_client: &reqwest::Client,
     detector: &ActivityDetector,
     dns_collector: &DnsCollector,
+    ip_registry: &Arc<RwLock<GameIpRegistry>>,
+    registry_path: &PathBuf,
 ) {
     let tablets = config.get_tablets();
-
-    // IP 已在配置中固定时跳过 ARP 查询
-    let need_arp = tablets.values().any(|t| t.ip.is_empty());
-    let mac_ip = if need_arp { get_mac_ip_map(ros).await } else { HashMap::new() };
 
     let now = chrono::Local::now().timestamp() as f64;
 
     for (mac, tablet) in &tablets {
         let mac_upper = mac.to_uppercase();
-        let ip = if tablet.ip.is_empty() { mac_ip.get(&mac_upper).cloned().unwrap_or_default() } else { tablet.ip.clone() };
-        if ip.is_empty() { continue; }
+        let ip = if tablet.ip.is_empty() { continue } else { tablet.ip.clone() };
 
         let dns_domains = dns_collector.fetch_recent_domains(&http_client, &mac_upper, &ip).await;
-        let (bytes_total, conn_count) = crate::ros::arp::get_connection_detail_by_ip(ros, &ip).await;
-        let bytes_delta = detector.calc_bytes_delta(&mac_upper, bytes_total);
+
+        // 用连接表替代旧的 get_connection_detail_by_ip，同时获取目标 IP 列表
+        let conn_detail = get_device_connections(ros, &ip).await;
+        let bytes_delta = detector.calc_bytes_delta(&mac_upper, conn_detail.total_bytes);
+
+        // 读取 IP 注册表（只读锁，快速释放）
+        let registry_snapshot = ip_registry.read().await.clone();
 
         let result = detector.detect_and_record(
-            &mac_upper, &ip, now, dns_domains, conn_count, bytes_delta, db,
+            &mac_upper, &ip, now,
+            dns_domains.clone(), conn_detail.conn_count, bytes_delta,
+            &conn_detail.dst_ips, &registry_snapshot, db,
         );
-        debug!("数据采集 {} ({}) → {} (bytes={}, conns={})", tablet.name, mac_upper, result.status, result.bytes_delta, result.conn_count);
+
+        // 自动发现：DNS 应答中的新 IP + 连接表中的新 IP
+        let mut registry = ip_registry.write().await;
+        let dns_answers = dns_collector.get_last_answers();
+        let changed1 = registry.auto_discover_from_dns(&dns_domains, &dns_answers);
+        let changed2 = registry.auto_discover_from_conn(&conn_detail.dst_ips, result.status == "ACTIVE");
+        if changed1 || changed2 {
+            registry.save(registry_path);
+        }
+        drop(registry);
+
+        debug!("数据采集 {} ({}) → {} (bytes={}, conns={}, game_conn={})",
+            tablet.name, mac_upper, result.status, result.bytes_delta, result.conn_count,
+            conn_detail.dst_ips.iter().any(|ip| registry_snapshot.is_game_ip(ip)));
     }
 }

@@ -80,3 +80,21 @@ export interface User {
   display_name: string;
   role: string;
 }
+
+export interface GameIpEntry {
+  addr: string;
+  source: string;
+  label: string | null;
+  first_seen: string | null;
+}
+
+export interface GameIpListResponse {
+  domains: string[];
+  ips: GameIpEntry[];
+  total: number;
+}
+
+export interface OpResponse {
+  ok: boolean;
+  message: string;
+}

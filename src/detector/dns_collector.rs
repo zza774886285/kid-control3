@@ -1,13 +1,23 @@
 use serde_json::Value;
+use std::sync::Mutex;
 use tracing::warn;
 
 pub struct DnsCollector {
     pub mosdns_url: String,
+    last_answers: Mutex<Vec<String>>,
 }
 
 impl DnsCollector {
     pub fn new(mosdns_url: &str) -> Self {
-        Self { mosdns_url: mosdns_url.to_string() }
+        Self {
+            mosdns_url: mosdns_url.to_string(),
+            last_answers: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// 获取上次 DNS 查询的应答 IP 列表
+    pub fn get_last_answers(&self) -> Vec<String> {
+        self.last_answers.lock().unwrap().clone()
     }
 
     /// 从 MOSDNS 获取最近的 DNS 日志，按 IP 过滤，返回域名列表
@@ -37,6 +47,7 @@ impl DnsCollector {
         let now = chrono::Local::now();
         let cutoff = now - chrono::Duration::minutes(1);
         let mut domains = Vec::new();
+        let mut answers = Vec::new();
 
         for entry in logs {
             // 时间过滤
@@ -62,7 +73,26 @@ impl DnsCollector {
                 if d.ends_with(".ip6.arpa") || d.ends_with(".in-addr.arpa") { continue; }
                 domains.push(d);
             }
+
+            // 提取 DNS 应答中的 IP 地址
+            if let Some(ans_arr) = entry.get("answers").and_then(|v| v.as_array()) {
+                for ans in ans_arr {
+                    if let Some(ip_str) = ans.as_str() {
+                        let clean_ip = if ip_str.starts_with("::ffff:") {
+                            ip_str[7..].to_string()
+                        } else {
+                            ip_str.to_string()
+                        };
+                        if !clean_ip.is_empty() && !answers.contains(&clean_ip) {
+                            answers.push(clean_ip);
+                        }
+                    }
+                }
+            }
         }
+
+        // 缓存应答 IP 供自动发现使用
+        *self.last_answers.lock().unwrap() = answers;
 
         domains
     }
