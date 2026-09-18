@@ -5,7 +5,7 @@ use tracing::{debug, warn};
 use crate::models::DomainClassification;
 use super::domain_rules::classify_domains;
 
-const DECAY_WINDOWS: i32 = 3;
+const DECAY_WINDOWS: i32 = 10;
 const BW_THRESHOLD: i64 = 50_000;
 const IDLE_TRAFFIC: i64 = 5_000;
 const CONN_THRESHOLD: i32 = 2;
