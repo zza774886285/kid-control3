@@ -52,7 +52,7 @@
 
 ### 9. ROS 密码明文存储
 **文件**: `src/ros/client.rs:8,22`  
-**问题**: `pass: String` 字段明文保存 ROS 密码（`890405`），可通过 debug 日志泄露。  
+**问题**: `pass: String` 字段明文保存 ROS 密码（`*****`），可通过 debug 日志泄露。  
 **修复建议**: 使用环境变量或加密配置读取；Rust 的 `Secret` 类型或 `zeroize` crate 清理内存。
 
 ### 10. API 无认证鉴权
