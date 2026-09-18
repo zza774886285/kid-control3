@@ -112,6 +112,7 @@ async fn main() {
         .route("/api/data", get(api::data::get_data))
         .route("/api/video-windows", get(api::data::get_video_windows))
         .route("/api/weekly-stats", get(api::data::get_weekly_stats))
+        .route("/api/recent-activity", get(api::data::get_recent_activity))
         .route("/api/control-status", get(api::control::get_control_status))
         .route("/api/settings", get(api::config_api::get_settings).post(api::config_api::post_settings))
         .route("/api/vacation", get(api::config_api::get_vacation).post(api::config_api::set_vacation))

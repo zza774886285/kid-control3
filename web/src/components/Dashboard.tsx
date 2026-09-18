@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import type { UserData } from "../types";
-import { fetchData, fetchWeeklyStats, kidAdjust, pauseDevice, switchDevice } from "../api";
+import type { UserData, RecentDeviceActivity } from "../types";
+import { fetchData, fetchRecentActivity, kidAdjust, pauseDevice, switchDevice } from "../api";
 import RealTimeActivity from "./RealTimeActivity";
 
 function MiniBar({
@@ -51,7 +51,7 @@ function deviceColor(name: string) {
 
 export default function Dashboard() {
   const [data, setData] = useState<UserData | null>(null);
-  const [weeklyData, setWeeklyData] = useState<Record<string, Record<string, number>>>({});
+  const [recentActivity, setRecentActivity] = useState<RecentDeviceActivity[]>([]);
   const [loading, setLoading] = useState(true);
 
   // 主数据加载
@@ -66,10 +66,19 @@ export default function Dashboard() {
     }
   }, []);
 
-  // 周统计数据（独立加载，避免被 tree-shake）
-  useEffect(() => {
-    fetchWeeklyStats().then(setWeeklyData).catch(() => {});
+  // 最近20分钟活动数据（跟随主数据一起刷新）
+  const loadRecent = useCallback(async () => {
+    try {
+      const r = await fetchRecentActivity();
+      setRecentActivity(r);
+    } catch {}
   }, []);
+
+  useEffect(() => {
+    loadRecent();
+    const timer = setInterval(loadRecent, 30000);
+    return () => clearInterval(timer);
+  }, [loadRecent]);
 
   useEffect(() => {
     load();
@@ -101,28 +110,10 @@ export default function Dashboard() {
   const now = new Date();
   const HHMM = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
-  // 本周使用数据（按设备 + 真实历史）
-  const weekDays = ["日", "一", "二", "三", "四", "五", "六"];
-  const today = now.getDay();
-  // 生成本周7天的日期字符串
-  const weekDates: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - today + i);
-    weekDates.push(d.toISOString().slice(0, 10));
-  }
-  const weekDataRaw = data.devices.map((dev) => {
-    const limitMin = Math.round((dev.limit_sec || 7200) / 60);
-    // 从 weeklyStats 取每天的活跃分钟数
-    const dailyMins = weekDates.map((date) => weeklyData[date]?.[dev.mac] || 0);
-    const usageMin = dailyMins[today] || Math.round((dev.daily_active_min || 0));
-    const over = usageMin > limitMin;
-    return { dev, limitMin, usageMin, over, dc: deviceColor(dev.name), dailyMins };
-  });
-  // 固定顺序：周楷依 → 周芓翕
+  // 设备固定排序：周楷依 → 周芓翕
   const ORDER = ["周楷依", "周芓翕"];
-  const weekData = [...weekDataRaw].sort(
-    (a, b) => ORDER.indexOf(a.dev.name) - ORDER.indexOf(b.dev.name)
+  const sortedDevices = [...data.devices].sort(
+    (a, b) => ORDER.indexOf(a.name) - ORDER.indexOf(b.name)
   );
 
   return (
@@ -365,58 +356,76 @@ export default function Dashboard() {
         }))}
       />
 
-      {/* 本周使用概览 */}
+      {/* 最近20分钟活动 */}
       <div className="rounded-2xl p-5 glass">
         <h3
           className="text-sm font-semibold mb-3 tracking-wide uppercase"
           style={{ color: "var(--t1)" }}
         >
-          本周使用概览
+          最近20分钟活动
         </h3>
         <div className="space-y-4">
-          {weekData.map(({ dev, limitMin, dc, dailyMins }) => {
-            const todayMin = dailyMins[today] || 0;
-            const over = todayMin > limitMin;
+          {sortedDevices.map((dev) => {
+            const dc = deviceColor(dev.name);
+            const devActivity = recentActivity.find((r) => r.mac === dev.mac);
+            const minutes = devActivity?.minutes || [];
+
+            // 生成20个时间槽（当前分钟往前推19分钟）
+            const slots: { time: string; status: string; type: string }[] = [];
+            for (let i = 19; i >= 0; i--) {
+              const d = new Date(now.getTime() - i * 60000);
+              const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+              const found = minutes.find((m) => m.time === time);
+              slots.push(found || { time, status: "NODATA", type: "none" });
+            }
+
+            const activeCount = slots.filter((s) => s.status === "ACTIVE").length;
+
             return (
               <div key={dev.mac}>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-sm">{dc.icon}</span>
-                  <span className="text-sm font-medium" style={{ color: "var(--t1)" }}>{dev.name}</span>
-                  <span className="text-xs" style={{ color: "var(--t3)" }}>{todayMin}min / {limitMin}min</span>
-                  {over && <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--err-g)", color: "var(--err)" }}>超限</span>}
+                  <span className="text-sm font-medium" style={{ color: "var(--t1)" }}>
+                    {dev.name}
+                  </span>
+                  <span className="text-xs" style={{ color: "var(--t3)" }}>
+                    {activeCount}/20min 活跃
+                  </span>
                 </div>
-              <div className="grid grid-cols-7 gap-1.5">
-                {weekDays.map((day, i) => {
-                  const dayMin = dailyMins[i] || 0;
-                  const dayOver = dayMin > limitMin;
-                  const pct = limitMin > 0 ? Math.min((dayMin / limitMin) * 100, 100) : 0;
-                  return (
-                    <div key={i} className="flex flex-col items-center gap-1">
-                      <span
-                        className="text-[10px]"
-                        style={{ color: i === today ? "var(--t1)" : "var(--t3)" }}
-                      >
-                        {day}
-                      </span>
-                      <div
-                        className="w-full h-16 rounded-md overflow-hidden relative"
-                        style={{ background: "rgba(255,255,255,0.03)" }}
-                      >
+                {/* 时间轴 */}
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] w-8 text-right" style={{ color: "var(--t3)" }}>
+                    -20m
+                  </span>
+                  <div className="flex gap-0.5 flex-1">
+                    {slots.map((slot, i) => {
+                      const isActive = slot.status === "ACTIVE";
+                      const isNoData = slot.status === "NODATA";
+                      const bg = isActive
+                        ? dc.c
+                        : isNoData
+                          ? "rgba(255,255,255,0.02)"
+                          : "rgba(255,255,255,0.08)";
+                      return (
                         <div
-                          className="absolute bottom-0 left-0 right-0 rounded-md transition-all duration-500"
+                          key={i}
+                          className="flex-1 h-5 rounded-sm transition-all duration-300"
                           style={{
-                            height: `${pct}%`,
-                            background: dayOver
-                              ? "var(--err)"
-                              : `linear-gradient(to top, ${dc.c}88, ${dc.c})`,
+                            background: bg,
+                            border: isActive
+                              ? `1px solid ${dc.c}`
+                              : "1px solid rgba(255,255,255,0.04)",
                           }}
+                          title={`${slot.time} — ${slot.status === "ACTIVE" ? slot.type : slot.status === "IDLE" ? "空闲" : "无数据"}`}
                         />
-                      </div>
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                  </div>
+                  <span className="text-[9px] w-8" style={{ color: "var(--t3)" }}>
+                    now
+                  </span>
+                </div>
               </div>
-            </div>
             );
           })}
         </div>

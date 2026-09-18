@@ -23,6 +23,11 @@ export async function fetchWeeklyStats(): Promise<Record<string, Record<string, 
   return data.weekly || {};
 }
 
+export async function fetchRecentActivity(): Promise<import("./types").RecentDeviceActivity[]> {
+  const { data } = await api.get("/recent-activity");
+  return data.devices || [];
+}
+
 export async function kidAdjust(mac: string, delta: number) {
   const { data } = await api.post("/kid-adjust", { mac, delta });
   return data;

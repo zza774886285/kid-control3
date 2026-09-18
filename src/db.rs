@@ -559,6 +559,32 @@ impl Database {
         rows.filter_map(|r| r.ok()).collect()
     }
 
+    /// 获取最近 N 分钟的活动数据（每分钟一条）
+    pub fn get_recent_activity(&self, minutes: i64) -> Vec<(String, String, String, String)> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Local::now();
+        let start = (now - chrono::Duration::minutes(minutes))
+            .format("%Y-%m-%dT%H:%M:00")
+            .to_string();
+        let mut stmt = conn
+            .prepare(
+                "SELECT ts, mac, video_status, activity_type \
+                 FROM video_windows WHERE ts >= ?1 ORDER BY ts",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map(params![start], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .unwrap();
+        rows.filter_map(|r| r.ok()).collect()
+    }
+
     /// 获取所有用户
     pub fn get_all_users(&self) -> Vec<crate::models::User> {
         let conn = self.conn.lock().unwrap();

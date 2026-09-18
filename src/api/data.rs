@@ -65,6 +65,37 @@ pub async fn get_weekly_stats(State(state): State<Arc<AppState>>) -> Json<Value>
     Json(json!({"weekly": result}))
 }
 
+pub async fn get_recent_activity(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let rows = state.db.get_recent_activity(20);
+    let tablets = state.config.get_tablets();
+    let mut device_map: std::collections::HashMap<String, Vec<Value>> =
+        std::collections::HashMap::new();
+    for (ts, mac, status, activity_type) in rows {
+        let entry = device_map.entry(mac).or_insert_with(Vec::new);
+        // 提取 HH:mm
+        let time = ts
+            .split('T')
+            .nth(1)
+            .and_then(|s| s.get(..5))
+            .unwrap_or("")
+            .to_string();
+        entry.push(json!({"time": time, "status": status, "type": activity_type}));
+    }
+    let devices: Vec<Value> = tablets
+        .iter()
+        .map(|(mac, tablet)| {
+            let mac_upper = mac.to_uppercase();
+            let minutes = device_map.get(&mac_upper).cloned().unwrap_or_default();
+            json!({
+                "mac": mac_upper,
+                "name": tablet.name,
+                "minutes": minutes,
+            })
+        })
+        .collect();
+    Json(json!({"devices": devices}))
+}
+
 pub async fn get_video_windows(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,

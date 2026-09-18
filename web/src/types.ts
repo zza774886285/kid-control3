@@ -94,6 +94,18 @@ export interface GameIpListResponse {
   total: number;
 }
 
+export interface RecentMinute {
+  time: string;
+  status: string;
+  type: string;
+}
+
+export interface RecentDeviceActivity {
+  mac: string;
+  name: string;
+  minutes: RecentMinute[];
+}
+
 export interface OpResponse {
   ok: boolean;
   message: string;
