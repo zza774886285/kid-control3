@@ -94,17 +94,18 @@ impl ActivityDetector {
             state.silence_count = 0;
             state.last_active_ts = Some(ts);
             "ACTIVE".to_string()
-        } else if is_silent {
-            state.idle_count = DECAY_WINDOWS;
-            state.silence_count += 1;
-            if state.silence_count >= SILENCE_THRESHOLD {
-                state.last_active_ts = None;
-            }
-            "IDLE".to_string()
         } else if state.last_active_ts.is_some() && state.idle_count < DECAY_WINDOWS {
+            // 衰减路径：之前活跃过，衰减计数器还没满 → 继续算 ACTIVE
             state.idle_count += 1;
             "ACTIVE".to_string()
         } else {
+            // 超过衰减窗口，或从未活跃过 → IDLE
+            if is_silent {
+                state.silence_count += 1;
+                if state.silence_count >= SILENCE_THRESHOLD {
+                    state.last_active_ts = None;
+                }
+            }
             state.idle_count = DECAY_WINDOWS;
             "IDLE".to_string()
         };
