@@ -12,7 +12,7 @@ pub struct ConnectionDetail {
 /// 从 ROS 获取指定设备的连接详情（按 src-address 过滤）
 /// 返回该设备当前所有出站连接的字节数、连接数和目标 IP 列表
 pub async fn get_device_connections(client: &RosClient, ip: &str) -> ConnectionDetail {
-    let query = format!("/ip/connection?src-address~={}", ip);
+    let query = format!("/ip/firewall/connection?src-address~={}", ip);
     let data = match client.get(&query).await {
         Some(val) => val,
         None => return ConnectionDetail { total_bytes: 0, conn_count: 0, dst_ips: vec![] },

@@ -31,7 +31,7 @@ pub async fn get_mac_ip_map(client: &RosClient) -> HashMap<String, String> {
 }
 
 pub async fn get_connection_detail_by_ip(client: &RosClient, ip: &str) -> (i64, i32) {
-    let query = format!("/ip/connection?dst-address~={}", ip);
+    let query = format!("/ip/firewall/connection?dst-address~={}", ip);
     let data = match client.get(&query).await {
         Some(val) => val,
         None => return (0, 0),
