@@ -111,7 +111,7 @@ export default function Dashboard() {
     d.setDate(d.getDate() - today + i);
     weekDates.push(d.toISOString().slice(0, 10));
   }
-  const weekData = data.devices.map((dev) => {
+  const weekDataRaw = data.devices.map((dev) => {
     const limitMin = Math.round((dev.limit_sec || 7200) / 60);
     // 从 weeklyStats 取每天的活跃分钟数
     const dailyMins = weekDates.map((date) => weeklyData[date]?.[dev.mac] || 0);
@@ -119,6 +119,11 @@ export default function Dashboard() {
     const over = usageMin > limitMin;
     return { dev, limitMin, usageMin, over, dc: deviceColor(dev.name), dailyMins };
   });
+  // 固定顺序：周楷依 → 周芓翕
+  const ORDER = ["周楷依", "周芓翕"];
+  const weekData = [...weekDataRaw].sort(
+    (a, b) => ORDER.indexOf(a.dev.name) - ORDER.indexOf(b.dev.name)
+  );
 
   return (
     <div className="space-y-6">
@@ -147,20 +152,37 @@ export default function Dashboard() {
 
       {/* 设备卡片网格 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {[...data.devices].sort((a, b) => a.name.localeCompare(b.name, "zh")).map((dev) => {
+        {[...data.devices].sort((a, b) => {
+          const ORDER = ["周楷依", "周芓翕"];
+          const ai = ORDER.indexOf(a.name);
+          const bi = ORDER.indexOf(b.name);
+          if (ai !== -1 && bi !== -1) return ai - bi;
+          return a.name.localeCompare(b.name, "zh");
+        }).map((dev) => {
           const dc = deviceColor(dev.name);
           const limitMin = Math.round((dev.limit_sec || 7200) / 60);
           const usageMin = Math.round((dev.usage_sec || 0) / 60);
           const remainMin = Math.max(limitMin - usageMin, 0);
           const over = usageMin >= limitMin;
+          const isPaused = data?.config?.[`PAUSE_${dev.mac.toUpperCase()}`] === "true";
+          const isBlocked = data?.config?.[`SWITCH_${dev.mac.toUpperCase()}`] === "false";
 
-          const glowClass = over
-            ? "glow-danger"
-            : dev.online
-              ? `glow-border glow-${dc.css}`
-              : "";
+          const glowClass = isBlocked
+            ? "glow-blocked"
+            : over
+              ? "glow-danger"
+              : dev.online
+                ? `glow-border glow-${dc.css} glow-ok`
+                : "";
           const shimmerClass =
-            dev.online && !over ? `shimmer-${dc.css}` : "";
+            dev.online && !over && !isBlocked ? `shimmer-${dc.css}` : "";
+
+          // 状态徽标
+          const statusBadge = isBlocked
+            ? { text: "🚫 已禁止上网", color: "#ef4444", bg: "rgba(239,68,68,0.12)" }
+            : isPaused
+              ? { text: "👤 大人模式", color: "#f59e0b", bg: "rgba(245,158,11,0.12)" }
+              : null;
 
           return (
             <div
@@ -218,6 +240,20 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
+
+                {/* 状态徽标 */}
+                {statusBadge && (
+                  <div
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium mb-3"
+                    style={{
+                      color: statusBadge.color,
+                      background: statusBadge.bg,
+                      border: `1px solid ${statusBadge.color}33`,
+                    }}
+                  >
+                    {statusBadge.text}
+                  </div>
+                )}
 
                 {/* 进度条 */}
                 <div className="mb-4">
