@@ -93,7 +93,23 @@ pub async fn pause_device(
     let key = format!("PAUSE_{}", mac_upper);
     let val = if req.paused { "true" } else { "false" };
     match state.config.set(&key, val) {
-        Ok(()) => Json(json!({"ok": true})),
+        Ok(()) => {
+            // 立即生效：大人模式开启时解封，关闭时不操作（由管控周期决定）
+            if req.paused {
+                let mac_ip = crate::ros::arp::get_mac_ip_map(&state.ros).await;
+                let tablets = state.config.get_tablets();
+                let block_list = state.config.get("BLOCK_LIST").unwrap_or_else(|| "block-tablet".to_string());
+                if let Some(ip) = mac_ip.get(&mac_upper) {
+                    fw::unblock_ip(&state.ros, ip, &block_list).await;
+                    if let Some(tablet) = tablets.get(&mac_upper) {
+                        if !tablet.ipv6_comment.is_empty() {
+                            crate::ros::ipv6::unblock_ipv6(&state.ros, &tablet.ipv6_comment).await;
+                        }
+                    }
+                }
+            }
+            Json(json!({"ok": true}))
+        },
         Err(e) => Json(json!({"ok": false, "error": e.to_string()})),
     }
 }
