@@ -96,18 +96,25 @@ impl ConfigManager {
         self.get(key).and_then(|v| v.parse().ok())
     }
 
-    pub fn get_points_config(&self, tablet_key: &str) -> serde_json::Value {
-        let key = format!("POINTS_CONFIG_{}", tablet_key.to_uppercase());
+    /// 按用户积分配置（优先）+ 全局默认回退
+    pub fn get_points_config_for_user(&self, user_id: i64) -> serde_json::Value {
+        let key = format!("POINTS_CONFIG_USER_{}", user_id);
         self.get(&key)
             .and_then(|v| serde_json::from_str(&v).ok())
             .unwrap_or_else(|| {
-                // 默认配置
                 serde_json::json!({
-                    "tutoring": 60,
+                    "tutoring": 30,
                     "homework": 30,
                     "other": 30,
                 })
             })
+    }
+
+    pub fn set_points_config_for_user(&self, user_id: i64, config: &serde_json::Value) {
+        let key = format!("POINTS_CONFIG_USER_{}", user_id);
+        if let Ok(val) = serde_json::to_string(config) {
+            let _ = self.set(&key, &val);
+        }
     }
 
     pub fn is_in_time_window(&self, start_str: &str, end_str: &str) -> bool {

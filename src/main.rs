@@ -125,7 +125,7 @@ async fn main() {
         .route("/api/points/approve", post(api::points::approve_request))
         .route("/api/points/exchange", post(api::points::exchange_points))
         .route("/api/points/my", get(api::points::get_my_points))
-        .route("/api/points/config", get(api::points::get_points_config))
+        .route("/api/points/config", get(api::points::get_points_config).post(api::points::set_points_config))
         .route("/api/points/recent", get(api::points::get_recent_transactions))
         .route("/api/points/set", post(api::points::set_points))
         .route("/api/game-ips", get(api::game_ips::get_game_ips))

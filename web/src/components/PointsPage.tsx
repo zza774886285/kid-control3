@@ -6,7 +6,6 @@ import {
   fetchMyPoints,
   fetchPendingRequests,
   approveRequest,
-  fetchPointsConfig,
   setPoints,
 } from "../api";
 import type {
@@ -60,7 +59,7 @@ function formatTimeAgo(dateStr: string): string {
 // ── 主组件 ──────────────────────────────────────────────────────
 export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean } = {}) {
   const [balances, setBalances] = useState<PointsBalance[]>([]);
-  const [config, setConfig] = useState<PointsConfig>({ tutoring: 60, homework: 30, other: 30 });
+  const [config, setConfig] = useState<PointsConfig>({ tutoring: 30, homework: 30, other: 30 });
   const [pendingRequests, setPendingRequests] = useState<PointRequest[]>([]);
   const [history, setHistory] = useState<PointTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,10 +93,10 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
     }
   }, [currentUserId]);
 
-  const loadConfig = useCallback(async (tabletKey?: string) => {
+  const loadConfig = useCallback(async (userId?: number) => {
     try {
-      const url = tabletKey ? `/api/points/config?tablet_key=${tabletKey}` : undefined;
-      const resp = url ? await fetch(url).then(r => r.json()) : await fetchPointsConfig();
+      const url = userId ? `/api/points/config?user_id=${userId}` : `/api/points/config`;
+      const resp = await fetch(url).then(r => r.json());
       setConfig(resp.config || resp);
     } catch (e) {
       console.error("加载积分配置失败:", e);
@@ -125,7 +124,7 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
   async function reload() {
     setLoading(true);
     await loadBalances();
-    await loadConfig(currentRole);
+    await loadConfig(currentUserId);
     await loadPending();
     if (currentUserId) await loadHistory(currentUserId);
     setLoading(false);
@@ -152,7 +151,7 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
     localStorage.setItem("kc_current_user", String(userId));
     localStorage.setItem("kc_current_role", role);
     setAppliedType(null);
-    loadConfig(role);
+    loadConfig(userId);
     loadHistory(userId);
   }
 
@@ -560,6 +559,9 @@ function AdminView({ balances, pendingRequests, balancesMap, onApprove, onSwitch
       {/* ─── 直接调整积分 ─── */}
       <AdminAdjustPanel balances={balances} />
 
+      {/* ─── 积分配置 ─── */}
+      <AdminPointsConfigEditor balances={balances} />
+
       {/* ─── 待审批列表 ─── */}
       <div className="rounded-2xl glass p-5">
         <h3 className="font-semibold mb-4" style={{ color: "var(--t1)" }}>
@@ -628,6 +630,101 @@ function AdminView({ balances, pendingRequests, balancesMap, onApprove, onSwitch
 
       {/* ─── 最近交易 ─── */}
       <AdminRecentTransactions balancesMap={balancesMap} />
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 管理员 - 每用户积分配置
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function AdminPointsConfigEditor({ balances }: { balances: PointsBalance[] }) {
+  const kids = balances.filter((b) => b.username !== "admin");
+  const [selected, setSelected] = useState<number>(0);
+  const [cfg, setCfg] = useState({ tutoring: 30, homework: 30, other: 30 });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    if (kids.length > 0 && selected === 0) setSelected(kids[0].user_id);
+  }, [kids, selected]);
+
+  useEffect(() => {
+    if (selected > 0) {
+      fetch(`/api/points/config?user_id=${selected}`)
+        .then((r) => r.json())
+        .then((d) => setCfg(d.config || d))
+        .catch(console.error);
+    }
+  }, [selected]);
+
+  async function save() {
+    setSaving(true);
+    setMsg("");
+    try {
+      const resp = await fetch("/api/points/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: selected, ...cfg }),
+      }).then((r) => r.json());
+      if (resp.ok) setMsg("✅ 已保存");
+      else setMsg("❌ " + (resp.error || "保存失败"));
+    } catch {
+      setMsg("❌ 网络错误");
+    }
+    setSaving(false);
+  }
+
+  const LABELS: Record<string, string> = { tutoring: "📚 补课", homework: "📝 作业", other: "🎯 其他" };
+
+  return (
+    <div className="rounded-2xl glass p-5">
+      <h3 className="font-semibold mb-4" style={{ color: "var(--t1)" }}>⚙️ 积分配置（按孩子）</h3>
+      <div className="flex gap-2 mb-4">
+        {kids.map((k) => (
+          <button
+            key={k.user_id}
+            onClick={() => setSelected(k.user_id)}
+            className="px-3 py-1.5 rounded-full text-sm font-medium cursor-pointer transition-all"
+            style={{
+              background: selected === k.user_id ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${selected === k.user_id ? "rgba(99,102,241,0.4)" : "rgba(255,255,255,0.06)"}`,
+              color: selected === k.user_id ? "#818cf8" : "var(--t2)",
+            }}
+          >
+            {k.display_name}
+          </button>
+        ))}
+      </div>
+      {selected > 0 && (
+        <div className="space-y-3">
+          {(["tutoring", "homework", "other"] as const).map((key) => (
+            <div key={key} className="flex items-center gap-3">
+              <span className="w-20 text-sm" style={{ color: "var(--t2)" }}>{LABELS[key]}</span>
+              <input
+                type="number"
+                min={0}
+                max={999}
+                value={cfg[key]}
+                onChange={(e) => setCfg((p) => ({ ...p, [key]: Number(e.target.value) || 0 }))}
+                className="w-20 px-3 py-1.5 rounded-lg text-sm font-mono"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "var(--t1)" }}
+              />
+              <span className="text-xs" style={{ color: "var(--t3)" }}>分/次</span>
+            </div>
+          ))}
+          <div className="flex items-center gap-3 pt-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="px-4 py-1.5 rounded-full text-sm font-medium cursor-pointer transition-all"
+              style={{ background: "rgba(99,102,241,0.2)", border: "1px solid rgba(99,102,241,0.4)", color: "#818cf8" }}
+            >
+              {saving ? "保存中..." : "保存配置"}
+            </button>
+            {msg && <span className="text-sm" style={{ color: msg.startsWith("✅") ? "#16a34a" : "#ef4444" }}>{msg}</span>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

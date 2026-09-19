@@ -31,6 +31,14 @@ pub struct SetPointsRequest {
     pub description: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct SetPointsConfigRequest {
+    pub user_id: i64,
+    pub tutoring: i64,
+    pub homework: i64,
+    pub other: i64,
+}
+
 /// GET /api/points/balance — 所有用户积分余额
 pub async fn get_points_balance(State(state): State<Arc<AppState>>) -> Json<Value> {
     let users = state.db.get_all_users();
@@ -70,17 +78,13 @@ pub async fn apply_points(
         None => return Json(json!({ "ok": false, "error": "用户不存在" })),
     };
 
-    // 从积分配置获取该类型对应的积分值
-    let points = if let Some(tablet_key) = &user.tablet_key {
-        let config = state.config.get_points_config(tablet_key);
-        match req.request_type.as_str() {
-            "tutoring" => config["tutoring"].as_i64().unwrap_or(60),
-            "homework" => config["homework"].as_i64().unwrap_or(30),
-            "other" => config["other"].as_i64().unwrap_or(30),
-            _ => 30,
-        }
-    } else {
-        30 // 未绑定设备时的默认值
+    // 从积分配置获取该类型对应的积分值（按用户配置）
+    let config = state.config.get_points_config_for_user(req.user_id);
+    let points = match req.request_type.as_str() {
+        "tutoring" => config["tutoring"].as_i64().unwrap_or(30),
+        "homework" => config["homework"].as_i64().unwrap_or(30),
+        "other" => config["other"].as_i64().unwrap_or(30),
+        _ => 30,
     };
 
     if points <= 0 {
@@ -216,13 +220,17 @@ pub async fn get_recent_transactions(State(state): State<Arc<AppState>>) -> Json
     Json(json!({ "transactions": transactions }))
 }
 
-/// GET /api/points/config — 积分配置（前端用）
+/// GET /api/points/config — 积分配置（按用户）
 pub async fn get_points_config(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<Value> {
-    let tablet_key = params.get("tablet_key").cloned().unwrap_or_default();
-    let config = state.config.get_points_config(&tablet_key);
+    let user_id: i64 = params.get("user_id").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let config = if user_id > 0 {
+        state.config.get_points_config_for_user(user_id)
+    } else {
+        serde_json::json!({ "tutoring": 30, "homework": 30, "other": 30 })
+    };
     Json(json!({ "config": config }))
 }
 
@@ -266,4 +274,18 @@ pub async fn set_points(
         "message": format!("已为 {} 设置积分，当前余额: {}", user.display_name, new_balance),
         "balance": new_balance,
     }))
+}
+
+/// POST /api/points/config — 管理员设置用户积分配置
+pub async fn set_points_config(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SetPointsConfigRequest>,
+) -> Json<Value> {
+    let config = serde_json::json!({
+        "tutoring": req.tutoring,
+        "homework": req.homework,
+        "other": req.other,
+    });
+    state.config.set_points_config_for_user(req.user_id, &config);
+    Json(json!({ "ok": true, "config": config }))
 }
