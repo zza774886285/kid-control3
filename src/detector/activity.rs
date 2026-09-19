@@ -7,13 +7,9 @@ use super::domain_rules::classify_domains;
 
 const DECAY_WINDOWS: i32 = 10;
 const BW_THRESHOLD: i64 = 50_000;
-const IDLE_TRAFFIC: i64 = 5_000;
-const CONN_THRESHOLD: i32 = 2;
-const SILENCE_THRESHOLD: i32 = 2;
 
 struct DeviceState {
     idle_count: i32,
-    silence_count: i32,
     last_active_ts: Option<f64>,
 }
 
@@ -74,24 +70,20 @@ impl ActivityDetector {
         let has_dns = cls.category != "NONE";
 
         let has_traffic = bytes_delta > BW_THRESHOLD;
-        let has_conns = conn_count >= CONN_THRESHOLD;
+        let has_conns = conn_count >= 2;
         // 连接表信号：目标 IP 匹配游戏 IP 注册表
         let has_game_conn = dst_ips.iter().any(|ip| ip_registry.is_game_ip(ip));
         // 双信号：DNS 命中 或 连接表命中游戏 IP
         let signal = has_dns || has_game_conn;
 
-        let is_silent = bytes_delta < IDLE_TRAFFIC && !has_dns && !has_game_conn && conn_count < CONN_THRESHOLD;
-
         let mut states = self.states.lock().unwrap();
         let state = states.entry(mac.to_string()).or_insert_with(|| DeviceState {
             idle_count: 0,
-            silence_count: 0,
             last_active_ts: None,
         });
 
         let status = if signal {
             state.idle_count = 0;
-            state.silence_count = 0;
             state.last_active_ts = Some(ts);
             "ACTIVE".to_string()
         } else if state.last_active_ts.is_some() && state.idle_count < DECAY_WINDOWS {
@@ -100,12 +92,6 @@ impl ActivityDetector {
             "ACTIVE".to_string()
         } else {
             // 超过衰减窗口，或从未活跃过 → IDLE
-            if is_silent {
-                state.silence_count += 1;
-                if state.silence_count >= SILENCE_THRESHOLD {
-                    state.last_active_ts = None;
-                }
-            }
             state.idle_count = DECAY_WINDOWS;
             "IDLE".to_string()
         };
@@ -140,7 +126,7 @@ impl ActivityDetector {
             has_traffic,
             has_conns,
             signal,
-            is_silent,
+            is_silent: false,
         }
     }
 }
