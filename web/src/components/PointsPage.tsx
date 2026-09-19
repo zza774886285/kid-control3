@@ -79,14 +79,13 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
     try {
       const data = await fetchPointsBalance();
       setBalances(data);
+      // 仅在无 localStorage 记录时初始化，不覆盖已选角色
       if (currentUserId === 0 && data.length > 0) {
-        const firstKid = data.find((b) => b.username !== "admin");
-        if (firstKid) {
-          setCurrentUserId(firstKid.user_id);
-          setCurrentRole(firstKid.username);
-          localStorage.setItem("kc_current_user", String(firstKid.user_id));
-          localStorage.setItem("kc_current_role", firstKid.username);
+        const saved = localStorage.getItem("kc_current_user");
+        if (saved) {
+          setCurrentUserId(Number(saved));
         }
+        // 不自动选孩子，保持默认 admin 角色
       }
     } catch (e) {
       console.error("加载积分余额失败:", e);
