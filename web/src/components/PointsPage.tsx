@@ -154,6 +154,11 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
     loadHistory(userId);
   }
 
+  function switchToAdmin() {
+    setCurrentRole("admin");
+    localStorage.setItem("kc_current_role", "admin");
+  }
+
   async function handleApply(requestType: string) {
     try {
       const res = await applyPoints(currentUserId, requestType);
@@ -254,6 +259,7 @@ export default function PointsPage({ hideAdmin = false }: { hideAdmin?: boolean 
           applyError={applyError}
           onApply={handleApply}
           onExchange={handleExchange}
+          onBackToAdmin={switchToAdmin}
         />
       )}
 
@@ -283,9 +289,10 @@ interface ChildViewProps {
   applyError: string | null;
   onApply: (requestType: string) => void;
   onExchange: (points: number) => void;
+  onBackToAdmin?: () => void;
 }
 
-function ChildView({ balance, config, history, pendingRequests, appliedType, applyError, onApply, onExchange }: ChildViewProps) {
+function ChildView({ balance, config, history, pendingRequests, appliedType, applyError, onApply, onExchange, onBackToAdmin }: ChildViewProps) {
   const pointsMap: Record<string, number> = { tutoring: config.tutoring, homework: config.homework, other: config.other };
 
   // 儿童风申请按钮颜色
@@ -297,6 +304,16 @@ function ChildView({ balance, config, history, pendingRequests, appliedType, app
 
   return (
     <div className="space-y-6">
+      {/* ─── 返回管理按钮 ─── */}
+      {onBackToAdmin && (
+        <button
+          onClick={onBackToAdmin}
+          className="px-4 py-2 rounded-xl text-sm font-medium cursor-pointer transition-all duration-200 hover:scale-105"
+          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "var(--t2)" }}
+        >
+          ← 返回管理
+        </button>
+      )}
       {/* ─── 积分余额大数字（可爱风） ─── */}
       <div
         className="relative rounded-3xl p-8 text-center overflow-hidden"
