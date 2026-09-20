@@ -1,4 +1,9 @@
 use std::sync::Arc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 use axum::{routing::{get, post}, Router};
 use tower_http::cors::{CorsLayer, Any};
 use tower_http::services::ServeDir;
