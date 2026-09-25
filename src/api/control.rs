@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use crate::AppState;
 use crate::ros::firewall as fw;
+use crate::scheduler::collect::apply_now;
 
 #[derive(Deserialize)]
 pub struct AdjustRequest {
@@ -36,15 +37,20 @@ pub async fn kid_adjust(
     let new_val = (current.max(usage_sec) + req.delta).max(0);
     let base_limit = state.config.get_daily_limit();
 
-    if new_val == base_limit {
-        // 等于基础限额时删除 override
-        let _ = state.config.delete(&key);
-        Json(json!({"ok": true, "new_limit_sec": base_limit}))
+    let result = if new_val == base_limit {
+        state.config.delete(&key).map(|_| base_limit)
     } else {
-        match state.config.set(&key, &new_val.to_string()) {
-            Ok(()) => Json(json!({"ok": true, "new_limit_sec": new_val})),
-            Err(e) => Json(json!({"ok": false, "error": e.to_string()})),
+        state.config
+            .set(&key, &new_val.to_string())
+            .map(|_| new_val)
+    };
+
+    match result {
+        Ok(limit_sec) => {
+            apply_now(&state.ros, &state.config, &state.db, &mac_upper).await;
+            Json(json!({"ok": true, "new_limit_sec": limit_sec}))
         }
+        Err(e) => Json(json!({"ok": false, "error": e.to_string()})),
     }
 }
 
@@ -53,36 +59,15 @@ pub async fn switch_device(
     Json(req): Json<SwitchRequest>,
 ) -> Json<Value> {
     let mac_upper = req.mac.to_uppercase();
-    // 从 ARP 表获取设备 IP
-    let mac_ip = crate::ros::arp::get_mac_ip_map(&state.ros).await;
-    let ip = match mac_ip.get(&mac_upper) {
-        Some(ip) => ip.clone(),
-        None => return Json(json!({"ok": false, "error": "设备离线，无法操作"})),
-    };
-    let block_list = state.config.get("BLOCK_LIST").unwrap_or_else(|| "block-tablet".to_string());
-    // 获取设备的 ipv6_comment
-    let tablets = state.config.get_tablets();
-    let ipv6_comment = tablets.get(&mac_upper)
-        .map(|t| t.ipv6_comment.clone())
-        .unwrap_or_default();
-    if req.enabled {
-        // 恢复：IPv4 address-list + IPv6 filter 规则
-        fw::unblock_ip(&state.ros, &ip, &block_list).await;
-        if !ipv6_comment.is_empty() {
-            crate::ros::ipv6::unblock_ipv6(&state.ros, &ipv6_comment).await;
-        }
-    } else {
-        // 断网：IPv4 address-list + IPv6 filter 规则
-        fw::block_ip(&state.ros, &ip, &block_list).await;
-        if !ipv6_comment.is_empty() {
-            crate::ros::ipv6::block_ipv6(&state.ros, &ipv6_comment).await;
-        }
-    }
-    // 同时更新配置状态
     let key = format!("SWITCH_{}", mac_upper);
     let val = if req.enabled { "true" } else { "false" };
-    let _ = state.config.set(&key, val);
-    Json(json!({"ok": true, "blocked": !req.enabled}))
+    match state.config.set(&key, val) {
+        Ok(()) => {
+            apply_now(&state.ros, &state.config, &state.db, &mac_upper).await;
+            Json(json!({"ok": true, "blocked": !req.enabled}))
+        }
+        Err(e) => Json(json!({"ok": false, "error": e.to_string()})),
+    }
 }
 
 pub async fn pause_device(
@@ -94,22 +79,9 @@ pub async fn pause_device(
     let val = if req.paused { "true" } else { "false" };
     match state.config.set(&key, val) {
         Ok(()) => {
-            // 立即生效：大人模式开启时解封，关闭时不操作（由管控周期决定）
-            if req.paused {
-                let mac_ip = crate::ros::arp::get_mac_ip_map(&state.ros).await;
-                let tablets = state.config.get_tablets();
-                let block_list = state.config.get("BLOCK_LIST").unwrap_or_else(|| "block-tablet".to_string());
-                if let Some(ip) = mac_ip.get(&mac_upper) {
-                    fw::unblock_ip(&state.ros, ip, &block_list).await;
-                    if let Some(tablet) = tablets.get(&mac_upper) {
-                        if !tablet.ipv6_comment.is_empty() {
-                            crate::ros::ipv6::unblock_ipv6(&state.ros, &tablet.ipv6_comment).await;
-                        }
-                    }
-                }
-            }
+            apply_now(&state.ros, &state.config, &state.db, &mac_upper).await;
             Json(json!({"ok": true}))
-        },
+        }
         Err(e) => Json(json!({"ok": false, "error": e.to_string()})),
     }
 }

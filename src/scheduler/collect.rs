@@ -88,6 +88,93 @@ async fn unblock(ros: &RosClient, ip: &str, ipv6_comment: &str, list_name: &str,
     FW_STATE.write().await.insert(cache_key.to_string(), false);
 }
 
+/// 按当前配置对单台设备判定并立即应用封禁/解封，返回原因
+pub async fn apply_device(
+    ros: &RosClient,
+    config: &ConfigManager,
+    db: &Database,
+    mac_upper: &str,
+    name: &str,
+    ip: &str,
+    ipv6_comment: &str,
+    block_list: &str,
+) -> &'static str {
+    let paused = config.get(&format!("PAUSE_{}", mac_upper))
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    if paused {
+        info!("  {}: 大人模式 → 放行", name);
+        unblock(ros, ip, ipv6_comment, block_list, mac_upper).await;
+        persist_block_state(config, mac_upper).await;
+        return "大人模式 → 放行";
+    }
+
+    let switch_enabled = config
+        .get(&format!("SWITCH_{}", mac_upper))
+        .map(|v| v == "true");
+    if switch_enabled == Some(false) {
+        info!("  {}: 开关关闭 → 封禁", name);
+        block(ros, ip, ipv6_comment, block_list, mac_upper).await;
+        persist_block_state(config, mac_upper).await;
+        return "开关关闭 → 封禁";
+    }
+
+    let limit_sec = config.get_current_limit(mac_upper);
+    if limit_sec >= 0 {
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let (active_min, _, _) = db.get_daily_active_minutes(mac_upper, &today);
+        let usage_sec = active_min * 60;
+        if usage_sec >= limit_sec {
+            info!("  {}: 超限 ({}s >= {}s) → 封禁", name, usage_sec, limit_sec);
+            block(ros, ip, ipv6_comment, block_list, mac_upper).await;
+            persist_block_state(config, mac_upper).await;
+            return "超限 → 封禁";
+        }
+    }
+
+    info!("  {}: 放行", name);
+    unblock(ros, ip, ipv6_comment, block_list, mac_upper).await;
+    persist_block_state(config, mac_upper).await;
+    "放行"
+}
+
+/// API 用：按 MAC 立即重新判定并应用（找不到设备或 IP 为空则记 debug 日志并返回）
+pub async fn apply_now(
+    ros: &RosClient,
+    config: &ConfigManager,
+    db: &Arc<Database>,
+    mac_upper: &str,
+) {
+    let tablets = config.get_tablets();
+    let Some(tablet) = tablets.get(mac_upper) else {
+        debug!("  {}: 未找到设备配置，跳过", mac_upper);
+        return;
+    };
+
+    let ip = if tablet.ip.is_empty() {
+        get_mac_ip_map(ros).await.get(mac_upper).cloned().unwrap_or_default()
+    } else {
+        tablet.ip.clone()
+    };
+    if ip.is_empty() {
+        debug!("  {}: IP 为空，跳过", mac_upper);
+        return;
+    }
+
+    let block_list = config.get("BLOCK_LIST").unwrap_or_else(|| "block-tablet".to_string());
+    apply_device(
+        ros,
+        config,
+        db.as_ref(),
+        mac_upper,
+        &tablet.name,
+        &ip,
+        &tablet.ipv6_comment,
+        &block_list,
+    )
+    .await;
+}
+
 pub async fn run_control_cycle(
     ros: &RosClient,
     config: &ConfigManager,
@@ -115,45 +202,17 @@ pub async fn run_control_cycle(
             continue;
         }
 
-        // 检查大人模式
-        let paused = config.get(&format!("PAUSE_{}", mac_upper))
-            .map(|v| v == "true")
-            .unwrap_or(false);
-        if paused {
-            info!("  {}: 大人模式 → 放行", name);
-            unblock(ros, &ip, &tablet.ipv6_comment, &block_list, &mac_upper).await;
-            persist_block_state(config, &mac_upper).await;
-            continue;
-        }
-
-        // 检查开关
-        let switch_key = format!("SWITCH_{}", mac_upper);
-        let switch_enabled = config.get(&switch_key).map(|v| v == "true");
-
-        if switch_enabled == Some(false) {
-            info!("  {}: 开关关闭 → 封禁", name);
-            block(ros, &ip, &tablet.ipv6_comment, &block_list, &mac_upper).await;
-            persist_block_state(config, &mac_upper).await;
-            continue;
-        }
-
-        // 检查每日限额（含 override）
-        let limit_sec = config.get_current_limit(&mac_upper);
-        if limit_sec >= 0 {
-            let today = now.format("%Y-%m-%d").to_string();
-            let (active_min, _, _) = db.get_daily_active_minutes(&mac_upper, &today);
-            let usage_sec = active_min * 60;
-            if usage_sec >= limit_sec {
-                info!("  {}: 超限 ({}s >= {}s) → 封禁", name, usage_sec, limit_sec);
-                block(ros, &ip, &tablet.ipv6_comment, &block_list, &mac_upper).await;
-                persist_block_state(config, &mac_upper).await;
-                continue;
-            }
-        }
-
-        info!("  {}: 放行", name);
-        unblock(ros, &ip, &tablet.ipv6_comment, &block_list, &mac_upper).await;
-        persist_block_state(config, &mac_upper).await;
+        apply_device(
+            ros,
+            config,
+            db.as_ref(),
+            &mac_upper,
+            name,
+            &ip,
+            &tablet.ipv6_comment,
+            &block_list,
+        )
+        .await;
     }
 
     info!("管控执行完成");
