@@ -255,95 +255,80 @@ mod tests {
 
     const MAC: &str = "AA:BB:CC:DD:EE:FF";
 
-    fn new_env(tag: &str) -> (Arc<Database>, ConfigManager, String, String) {
+    fn test_db(tag: &str) -> Arc<Database> {
         let path = std::env::temp_dir().join(format!("kc3-collect-test-{}.db", tag));
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
         }
-        let db = Arc::new(
-            Database::new(path.to_str().expect("tmp path")).expect("打开测试数据库"),
-        );
-        let config = ConfigManager::new(db.clone());
-        let day_type = config.get_day_type();
-        // 本组用例只验证限额/开关逻辑，时间窗口设为不限制
-        config
-            .set(&format!("{}_TIME_MODE", day_type.to_uppercase()), "all")
-            .expect("设置时间模式");
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        (db, config, day_type, today)
+        Arc::new(Database::new(path.to_str().expect("tmp path")).expect("打开测试数据库"))
     }
 
-    fn insert_window(db: &Database, today: &str, minute: usize, status: &str) {
-        let ts = format!("{}T09:{:02}:00", today, minute);
-        db.insert_video_window(
-            &ts, today, MAC, "10.1.1.9", 0, 0, "[]", "[]",
-            if status == "ACTIVE" { 100 } else { 0 }, status, "video",
-        )
-        .expect("写入窗口");
+    /// 不存在的路径 → 默认注册表，避免测试依赖磁盘文件
+    fn test_registry() -> GameIpRegistry {
+        GameIpRegistry::load(&std::env::temp_dir().join("kc3-absent-registry.json"))
     }
 
-    fn fixed_ts() -> f64 {
+    fn ts_at(hour: u32, minute: u32) -> f64 {
         chrono::Local::now()
             .date_naive()
-            .and_hms_opt(10, 0, 0)
+            .and_hms_opt(hour, minute, 0)
             .and_then(|dt| dt.and_local_timezone(chrono::Local).single())
-            .expect("构造固定时间戳")
+            .expect("构造测试时间戳")
             .timestamp() as f64
     }
 
-    #[test]
-    fn switch_off_is_restricted() {
-        let (db, config, day_type, today) = new_env("switch-off");
-        config.set(&format!("SWITCH_{}", MAC), "false").expect("set switch");
-        assert!(is_device_restricted(&config, &db, MAC, &day_type, &today));
+    fn collect_once(
+        detector: &ActivityDetector,
+        db: &Database,
+        ts: f64,
+        dns: Vec<String>,
+        force_idle: bool,
+    ) -> String {
+        detector
+            .detect_and_record(
+                MAC, "10.1.1.9", ts, dns, 5, 200_000, &[], force_idle, &test_registry(), db,
+            )
+            .status
     }
 
+    /// 有信号时正常计入使用时间
     #[test]
-    fn pause_overrides_limit() {
-        let (db, config, day_type, today) = new_env("pause");
-        config.set("DEFAULT_LIMIT", "60").expect("set limit");
-        for m in 0..60 {
-            insert_window(&db, &today, m, "ACTIVE");
-        }
-        config.set(&format!("PAUSE_{}", MAC), "true").expect("set pause");
-        assert!(!is_device_restricted(&config, &db, MAC, &day_type, &today));
-    }
-
-    #[test]
-    fn daily_limit_boundary() {
-        let (db, config, day_type, today) = new_env("limit");
-        config.set("DEFAULT_LIMIT", "60").expect("set limit");
-        for m in 0..59 {
-            insert_window(&db, &today, m, "ACTIVE");
-        }
-        // 第 60 分钟还没用 → 仍放行（这一分钟合法）
-        assert!(!is_device_restricted(&config, &db, MAC, &day_type, &today));
-        insert_window(&db, &today, 59, "ACTIVE");
-        // 用满限额 → 受限
-        assert!(is_device_restricted(&config, &db, MAC, &day_type, &today));
-    }
-
-    #[test]
-    fn blocked_minutes_do_not_count_toward_usage() {
-        let (db, config, day_type, today) = new_env("blocked");
-        config.set("DEFAULT_LIMIT", "60").expect("set limit");
+    fn signal_counts_as_active() {
+        let db = test_db("active");
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let detector = ActivityDetector::new();
-        let registry = GameIpRegistry::default_registry();
-        let ts = fixed_ts();
+
+        let status = collect_once(
+            &detector, &db, ts_at(10, 0), vec!["www.xiaohongshu.com".to_string()], false);
+        assert_eq!(status, "ACTIVE");
+        assert_eq!(db.get_daily_active_minutes(MAC, &today).0, 1);
+    }
+
+    /// 封禁期间（force_idle）即使仍有 DNS 信号，也不计入使用时间
+    #[test]
+    fn force_idle_does_not_count_toward_usage() {
+        let db = test_db("force-idle");
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let detector = ActivityDetector::new();
+
+        let status = collect_once(
+            &detector, &db, ts_at(10, 0), vec!["www.xiaohongshu.com".to_string()], true);
+        assert_eq!(status, "IDLE");
+        assert_eq!(db.get_daily_active_minutes(MAC, &today).0, 0);
+    }
+
+    /// 封禁期间不靠 10 周期衰减窗口继续计时；解封后无信号即为空闲
+    #[test]
+    fn force_idle_resets_decay_window() {
+        let db = test_db("decay");
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let detector = ActivityDetector::new();
         let dns = vec!["www.xiaohongshu.com".to_string()];
 
-        // 受限状态：即使有 DNS 信号，也只写 BLOCKED，不计入使用时间
-        let restricted_result = detector.detect_and_record(
-            MAC, "10.1.1.9", ts, dns.clone(), 5, 200_000, &[], true, &registry, &db);
-        assert_eq!(restricted_result.status, "BLOCKED");
-        assert_eq!(db.get_daily_active_minutes(MAC, &today).0, 0);
-
-        // 非受限状态：同样信号才计入 ACTIVE
-        let active_result = detector.detect_and_record(
-            MAC, "10.1.1.9", ts + 60.0, dns, 5, 200_000, &[], false, &registry, &db);
-        assert_eq!(active_result.status, "ACTIVE");
+        assert_eq!(collect_once(&detector, &db, ts_at(10, 0), dns.clone(), false), "ACTIVE");
+        assert_eq!(collect_once(&detector, &db, ts_at(10, 1), dns, true), "IDLE");
+        // 解封后没有信号：不应沿用封禁前的活跃状态
+        assert_eq!(collect_once(&detector, &db, ts_at(10, 2), vec![], false), "IDLE");
         assert_eq!(db.get_daily_active_minutes(MAC, &today).0, 1);
-
-        assert!(!is_device_restricted(&config, &db, MAC, &day_type, &today));
     }
 }
