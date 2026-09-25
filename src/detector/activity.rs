@@ -58,6 +58,7 @@ impl ActivityDetector {
     pub fn detect_and_record(&self, mac: &str, ip: &str, ts: f64,
         dns_domains: Vec<String>, conn_count: i32, bytes_delta: i64,
         dst_ips: &[String],
+        force_idle: bool,
         ip_registry: &crate::detector::ip_registry::GameIpRegistry,
         db: &crate::db::Database) -> crate::models::ActivityResult
     {
@@ -67,12 +68,12 @@ impl ActivityDetector {
         self.add_dns(mac, ts, dns_domains.clone());
 
         let cls = classify_domains(&dns_domains);
-        let has_dns = cls.category != "NONE";
+        let has_dns = !force_idle && cls.category != "NONE";
 
-        let has_traffic = bytes_delta > BW_THRESHOLD;
-        let has_conns = conn_count >= 2;
+        let has_traffic = !force_idle && bytes_delta > BW_THRESHOLD;
+        let has_conns = !force_idle && conn_count >= 2;
         // 连接表信号：目标 IP 匹配游戏 IP 注册表
-        let has_game_conn = dst_ips.iter().any(|ip| ip_registry.is_game_ip(ip));
+        let has_game_conn = !force_idle && dst_ips.iter().any(|ip| ip_registry.is_game_ip(ip));
         // 双信号：DNS 命中 或 连接表命中游戏 IP
         let signal = has_dns || has_game_conn;
 
@@ -82,7 +83,11 @@ impl ActivityDetector {
             last_active_ts: None,
         });
 
-        let status = if signal {
+        let status = if force_idle {
+            state.idle_count = DECAY_WINDOWS;
+            state.last_active_ts = None;
+            "IDLE".to_string()
+        } else if signal {
             state.idle_count = 0;
             state.last_active_ts = Some(ts);
             "ACTIVE".to_string()

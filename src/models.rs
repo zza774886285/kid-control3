@@ -148,6 +148,12 @@ pub struct WeeklyQuota {
     pub tutoring_used: i64,
     pub homework_used: i64,
     pub other_used: i64,
+    pub tutoring_count: i64,
+    pub homework_count: i64,
+    pub other_count: i64,
+    pub tutoring_max: i64,
+    pub homework_max: i64,
+    pub other_max: i64,
 }
 
 // ============ 控制状态 ============

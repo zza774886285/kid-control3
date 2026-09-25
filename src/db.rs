@@ -107,10 +107,65 @@ impl Database {
                 tutoring_used INTEGER DEFAULT 0,
                 homework_used INTEGER DEFAULT 0,
                 other_used INTEGER DEFAULT 0,
+                tutoring_count INTEGER DEFAULT 0,
+                homework_count INTEGER DEFAULT 0,
+                other_count INTEGER DEFAULT 0,
+                tutoring_max INTEGER DEFAULT 1,
+                homework_max INTEGER DEFAULT 1,
+                other_max INTEGER DEFAULT 1,
                 UNIQUE(user_id, week_start),
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
         ")?;
+
+        let existing_columns: Vec<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(weekly_quota)")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for (column, default) in [
+            ("tutoring_count", 0),
+            ("homework_count", 0),
+            ("other_count", 0),
+            ("tutoring_max", 1),
+            ("homework_max", 1),
+            ("other_max", 1),
+        ] {
+            if !existing_columns.iter().any(|name| name.as_str() == column) {
+                conn.execute(
+                    &format!("ALTER TABLE weekly_quota ADD COLUMN {} INTEGER DEFAULT {}", column, default),
+                    [],
+                )?;
+            }
+        }
+        conn.execute(
+            "UPDATE weekly_quota SET
+                tutoring_count = CASE
+                    WHEN COALESCE(tutoring_used, 0) > 0 AND COALESCE(tutoring_count, 0) = 0 THEN 1
+                    ELSE COALESCE(tutoring_count, 0)
+                END,
+                homework_count = CASE
+                    WHEN COALESCE(homework_used, 0) > 0 AND COALESCE(homework_count, 0) = 0 THEN 1
+                    ELSE COALESCE(homework_count, 0)
+                END,
+                other_count = CASE
+                    WHEN COALESCE(other_used, 0) > 0 AND COALESCE(other_count, 0) = 0 THEN 1
+                    ELSE COALESCE(other_count, 0)
+                END,
+                tutoring_used = CASE
+                    WHEN COALESCE(tutoring_used, 0) > 0 OR COALESCE(tutoring_count, 0) > 0 THEN 1
+                    ELSE 0
+                END,
+                homework_used = CASE
+                    WHEN COALESCE(homework_used, 0) > 0 OR COALESCE(homework_count, 0) > 0 THEN 1
+                    ELSE 0
+                END,
+                other_used = CASE
+                    WHEN COALESCE(other_used, 0) > 0 OR COALESCE(other_count, 0) > 0 THEN 1
+                    ELSE 0
+                END",
+            [],
+        )?;
         info!("数据库表初始化完成");
         Ok(())
     }
@@ -432,7 +487,14 @@ impl Database {
         let week_start = Self::get_week_start();
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, user_id, week_start, tutoring_used, homework_used, other_used
+            "SELECT id, user_id, week_start,
+                CASE WHEN COALESCE(tutoring_count, 0) > 0 OR COALESCE(tutoring_used, 0) > 0 THEN 1 ELSE 0 END,
+                CASE WHEN COALESCE(homework_count, 0) > 0 OR COALESCE(homework_used, 0) > 0 THEN 1 ELSE 0 END,
+                CASE WHEN COALESCE(other_count, 0) > 0 OR COALESCE(other_used, 0) > 0 THEN 1 ELSE 0 END,
+                MAX(COALESCE(tutoring_count, 0), CASE WHEN COALESCE(tutoring_used, 0) > 0 THEN 1 ELSE 0 END),
+                MAX(COALESCE(homework_count, 0), CASE WHEN COALESCE(homework_used, 0) > 0 THEN 1 ELSE 0 END),
+                MAX(COALESCE(other_count, 0), CASE WHEN COALESCE(other_used, 0) > 0 THEN 1 ELSE 0 END),
+                COALESCE(tutoring_max, 1), COALESCE(homework_max, 1), COALESCE(other_max, 1)
              FROM weekly_quota WHERE user_id=?1 AND week_start=?2",
             params![user_id, week_start],
             |row| Ok(crate::models::WeeklyQuota {
@@ -442,6 +504,12 @@ impl Database {
                 tutoring_used: row.get(3)?,
                 homework_used: row.get(4)?,
                 other_used: row.get(5)?,
+                tutoring_count: row.get(6)?,
+                homework_count: row.get(7)?,
+                other_count: row.get(8)?,
+                tutoring_max: row.get(9)?,
+                homework_max: row.get(10)?,
+                other_max: row.get(11)?,
             }),
         ).ok()
     }
@@ -449,22 +517,32 @@ impl Database {
     /// 标记该类型本周已使用
     pub fn update_weekly_quota(&self, user_id: i64, request_type: &str) {
         let week_start = Self::get_week_start();
+        let (count_col, max_col, used_col) = match request_type {
+            "tutoring" => ("tutoring_count", "tutoring_max", "tutoring_used"),
+            "homework" => ("homework_count", "homework_max", "homework_used"),
+            "other" => ("other_count", "other_max", "other_used"),
+            _ => return,
+        };
         let conn = self.conn.lock().unwrap();
-        // UPSERT：不存在则创建
         conn.execute(
             "INSERT INTO weekly_quota (user_id, week_start) VALUES (?1, ?2)
              ON CONFLICT(user_id, week_start) DO NOTHING",
             params![user_id, week_start],
         ).unwrap();
-        let col = match request_type {
-            "tutoring" => "tutoring_used",
-            "homework" => "homework_used",
-            "other" => "other_used",
-            _ => return, // 非法类型直接返回
-        };
-        // col 只可能是上面3个硬编码值，不存在注入风险
         conn.execute(
-            &format!("UPDATE weekly_quota SET {}=1 WHERE user_id=?1 AND week_start=?2", col),
+            &format!(
+                "UPDATE weekly_quota
+                 SET {count_col} = CASE
+                         WHEN COALESCE({count_col}, 0) < COALESCE({max_col}, 1)
+                             THEN COALESCE({count_col}, 0) + 1
+                         ELSE COALESCE({count_col}, 0)
+                     END,
+                     {used_col} = CASE
+                         WHEN COALESCE({count_col}, 0) < COALESCE({max_col}, 1) THEN 1
+                         ELSE COALESCE({used_col}, 0)
+                     END
+                 WHERE user_id=?1 AND week_start=?2",
+            ),
             params![user_id, week_start],
         ).unwrap();
     }
@@ -473,9 +551,10 @@ impl Database {
     pub fn is_quota_used(&self, user_id: i64, request_type: &str) -> bool {
         if let Some(quota) = self.get_weekly_quota(user_id) {
             match request_type {
-                "tutoring" => quota.tutoring_used > 0,
-                "homework" => quota.homework_used > 0,
-                _ => quota.other_used > 0,
+                "tutoring" => quota.tutoring_count >= quota.tutoring_max,
+                "homework" => quota.homework_count >= quota.homework_max,
+                "other" => quota.other_count >= quota.other_max,
+                _ => false,
             }
         } else {
             false

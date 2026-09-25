@@ -416,7 +416,7 @@ export default function Dashboard() {
                               ? `1px solid ${dc.c}`
                               : "1px solid rgba(255,255,255,0.04)",
                           }}
-                          title={`${slot.time} — ${slot.status === "ACTIVE" ? slot.type : slot.status === "IDLE" ? "空闲" : "无数据"}`}
+                          title={`${slot.time} — ${slot.status === "ACTIVE" ? slot.type : slot.status === "IDLE" ? "空闲" : slot.status === "BLOCKED" ? "已限制" : "无数据"}`}
                         />
                       );
                     })}

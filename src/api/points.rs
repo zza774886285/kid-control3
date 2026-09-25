@@ -3,7 +3,7 @@ use axum::{Json, extract::State};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::warn;
-use crate::AppState;
+use crate::KidAppState;
 
 #[derive(Deserialize)]
 pub struct ApplyPointsRequest {
@@ -40,7 +40,7 @@ pub struct SetPointsConfigRequest {
 }
 
 /// GET /api/points/balance — 所有用户积分余额
-pub async fn get_points_balance(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub async fn get_points_balance(State(state): State<Arc<KidAppState>>) -> Json<Value> {
     let users = state.db.get_all_users();
     let balances: Vec<Value> = users.iter().map(|u| {
         let balance = state.db.get_user_points_balance(u.id);
@@ -59,7 +59,7 @@ pub async fn get_points_balance(State(state): State<Arc<AppState>>) -> Json<Valu
 /// POST /api/points/apply — 孩子申请积分（检查周额度 + 发 Telegram 通知）
 /// 积分值由 request_type + 设备积分配置自动确定
 pub async fn apply_points(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<KidAppState>>,
     Json(req): Json<ApplyPointsRequest>,
 ) -> Json<Value> {
     // 校验 request_type
@@ -121,7 +121,7 @@ pub async fn apply_points(
 
 /// POST /api/points/approve — 管理员审批（HTTP 路径，备用）
 pub async fn approve_request(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<KidAppState>>,
     Json(req): Json<ApproveRequest>,
 ) -> Json<Value> {
     if req.action != "approve" && req.action != "reject" {
@@ -151,7 +151,7 @@ pub async fn approve_request(
 
 /// POST /api/points/exchange — 兑换积分
 pub async fn exchange_points(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<KidAppState>>,
     Json(req): Json<ExchangeRequest>,
 ) -> Json<Value> {
     let balance = state.db.get_user_points_balance(req.user_id);
@@ -199,7 +199,7 @@ pub async fn exchange_points(
 
 /// GET /api/points/my — 个人积分历史
 pub async fn get_my_points(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<KidAppState>>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<Value> {
     let user_id: i64 = params.get("user_id").and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -209,20 +209,20 @@ pub async fn get_my_points(
 }
 
 /// GET /api/points/pending — 待审批列表
-pub async fn get_pending_requests(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub async fn get_pending_requests(State(state): State<Arc<KidAppState>>) -> Json<Value> {
     let requests = state.db.get_pending_requests();
     Json(json!({ "requests": requests }))
 }
 
 /// GET /api/points/recent — 最近交易记录
-pub async fn get_recent_transactions(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub async fn get_recent_transactions(State(state): State<Arc<KidAppState>>) -> Json<Value> {
     let transactions = state.db.get_recent_transactions();
     Json(json!({ "transactions": transactions }))
 }
 
 /// GET /api/points/config — 积分配置（按用户）
 pub async fn get_points_config(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<KidAppState>>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<Value> {
     let user_id: i64 = params.get("user_id").and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -236,7 +236,7 @@ pub async fn get_points_config(
 
 /// POST /api/points/set — 管理员手动设置积分
 pub async fn set_points(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<KidAppState>>,
     Json(req): Json<SetPointsRequest>,
 ) -> Json<Value> {
     let user = match state.db.get_user_by_id(req.user_id) {
@@ -278,7 +278,7 @@ pub async fn set_points(
 
 /// POST /api/points/config — 管理员设置用户积分配置
 pub async fn set_points_config(
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<KidAppState>>,
     Json(req): Json<SetPointsConfigRequest>,
 ) -> Json<Value> {
     let config = serde_json::json!({

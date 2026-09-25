@@ -38,6 +38,11 @@ pub struct AppState {
     pub cache: RwLock<Option<serde_json::Value>>,
 }
 
+pub struct KidAppState {
+    pub db: Arc<Database>,
+    pub config: ConfigManager,
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -72,6 +77,7 @@ async fn main() {
 
     let db = Arc::new(Database::new(&db_path).expect("数据库初始化失败"));
     let config = ConfigManager::new(db.clone());
+    scheduler::collect::load_block_states(&config).await;
     let ros = RosClient::new(&ros_host, ros_port, &ros_user, &ros_pass);
     let detector = ActivityDetector::new();
     let dns_collector = DnsCollector::new(&mosdns_url);
@@ -112,8 +118,13 @@ async fn main() {
         cache: RwLock::new(None),
     });
 
-    // Admin API 路由（全部路由）
-    let admin_api_routes = Router::new()
+    let kid_state = Arc::new(KidAppState {
+        db: db.clone(),
+        config: ConfigManager::new(db.clone()),
+    });
+
+    // Admin API 路由（管理端）
+    let admin_api_routes: Router = Router::new()
         .route("/api/data", get(api::data::get_data))
         .route("/api/video-windows", get(api::data::get_video_windows))
         .route("/api/weekly-stats", get(api::data::get_weekly_stats))
@@ -124,6 +135,12 @@ async fn main() {
         .route("/api/kid-adjust", post(api::control::kid_adjust))
         .route("/api/switch", post(api::control::switch_device))
         .route("/api/pause", post(api::control::pause_device))
+        .route("/api/game-ips", get(api::game_ips::get_game_ips))
+        .route("/api/game-ips/ip", post(api::game_ips::add_game_ip).delete(api::game_ips::remove_game_ip))
+        .route("/api/game-ips/domain", post(api::game_ips::add_game_domain).delete(api::game_ips::remove_game_domain))
+        .with_state(state.clone());
+
+    let admin_points_routes: Router = Router::new()
         .route("/api/points/balance", get(api::points::get_points_balance))
         .route("/api/points/apply", post(api::points::apply_points))
         .route("/api/points/pending", get(api::points::get_pending_requests))
@@ -133,9 +150,7 @@ async fn main() {
         .route("/api/points/config", get(api::points::get_points_config).post(api::points::set_points_config))
         .route("/api/points/recent", get(api::points::get_recent_transactions))
         .route("/api/points/set", post(api::points::set_points))
-        .route("/api/game-ips", get(api::game_ips::get_game_ips))
-        .route("/api/game-ips/ip", post(api::game_ips::add_game_ip).delete(api::game_ips::remove_game_ip))
-        .route("/api/game-ips/domain", post(api::game_ips::add_game_domain).delete(api::game_ips::remove_game_domain));
+        .with_state(kid_state.clone());
 
     // Admin 静态文件（web/dist/，fallback 到 index.html）
     let admin_static_service = ServeDir::new("web/dist")
@@ -143,19 +158,20 @@ async fn main() {
 
     let admin_app = Router::new()
         .merge(admin_api_routes)
+        .merge(admin_points_routes)
         .fallback_service(admin_static_service)
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
-        .with_state(state.clone());
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any));
 
     // Kid API 路由（仅积分相关）
-    let kid_api_routes = Router::new()
+    let kid_api_routes: Router = Router::new()
         .route("/api/points/balance", get(api::points::get_points_balance))
         .route("/api/points/apply", post(api::points::apply_points))
         .route("/api/points/pending", get(api::points::get_pending_requests))
         .route("/api/points/exchange", post(api::points::exchange_points))
         .route("/api/points/my", get(api::points::get_my_points))
         .route("/api/points/config", get(api::points::get_points_config))
-        .route("/api/points/recent", get(api::points::get_recent_transactions));
+        .route("/api/points/recent", get(api::points::get_recent_transactions))
+        .with_state(kid_state);
 
     // Kid 静态文件（web/dist/kid/，不设 SPA fallback）
     let kid_static_service = ServeDir::new("web/dist/kid");
@@ -163,8 +179,7 @@ async fn main() {
     let kid_app = Router::new()
         .merge(kid_api_routes)
         .fallback_service(kid_static_service)
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
-        .with_state(state.clone());
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any));
 
     // 启动定时任务
     let state_clone = state.clone();

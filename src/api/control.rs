@@ -33,7 +33,8 @@ pub async fn kid_adjust(
 
     let day_type = state.config.get_day_type();
     let current = state.config.get_current_limit(&mac_upper, &day_type);
-    let new_val = (current + req.delta).max(0);
+    let usage_sec = state.db.get_daily_active_minutes(&mac_upper, &today).0 * 60;
+    let new_val = (current.max(usage_sec) + req.delta).max(0);
     let base_limit = state.config.get_device_limit(&mac_upper, &day_type);
 
     if new_val == base_limit {
