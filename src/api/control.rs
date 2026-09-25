@@ -31,11 +31,10 @@ pub async fn kid_adjust(
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let key = format!("LIMIT_OVERRIDE_{}_{}", mac_upper, today);
 
-    let day_type = state.config.get_day_type();
-    let current = state.config.get_current_limit(&mac_upper, &day_type);
+    let current = state.config.get_current_limit(&mac_upper);
     let usage_sec = state.db.get_daily_active_minutes(&mac_upper, &today).0 * 60;
     let new_val = (current.max(usage_sec) + req.delta).max(0);
-    let base_limit = state.config.get_device_limit(&mac_upper, &day_type);
+    let base_limit = state.config.get_daily_limit();
 
     if new_val == base_limit {
         // 等于基础限额时删除 override
@@ -119,7 +118,6 @@ pub async fn get_control_status(State(state): State<Arc<AppState>>) -> Json<Valu
     let tablets = state.config.get_tablets();
     let mac_ip = crate::ros::arp::get_mac_ip_map(&state.ros).await;
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let day_type = state.config.get_day_type();
 
     let mut statuses = Vec::new();
     for (mac, tablet) in &tablets {
@@ -132,7 +130,7 @@ pub async fn get_control_status(State(state): State<Arc<AppState>>) -> Json<Valu
             .map(|v| v == "true");
         let (active_min, _, _) = state.db.get_daily_active_minutes(&mac_upper, &today);
         let usage_sec = active_min * 60;
-        let limit_sec = state.config.get_current_limit(&mac_upper, &day_type);
+        let limit_sec = state.config.get_current_limit(&mac_upper);
         let block_list = state.config.get("BLOCK_LIST").unwrap_or_else(|| "block-tablet".to_string());
         let blocked = if online {
             let count = fw::get_address_list_count(&state.ros, &block_list, &ip).await;
@@ -151,5 +149,5 @@ pub async fn get_control_status(State(state): State<Arc<AppState>>) -> Json<Valu
             "limit_sec": limit_sec,
         }));
     }
-    Json(json!({"devices": statuses, "day_type": day_type}))
+    Json(json!({"devices": statuses}))
 }

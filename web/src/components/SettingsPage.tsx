@@ -386,44 +386,11 @@ export default function SettingsPage() {
         <h3 className="font-semibold mb-3" style={{ color: "var(--t1)" }}>⏰ 时间规则</h3>
         <div className="space-y-3">
           <div className="grid grid-cols-3 gap-3 items-center">
-            <label className="text-sm" style={{ color: "var(--t2)" }}>工作日管控</label>
-            <select
-              value={settings.WORKDAY_TIME_MODE || "block"}
-              onChange={(e) => update("WORKDAY_TIME_MODE", e.target.value)}
-              className={`${glassInput} appearance-none`}
-              style={inputStyle}
-            >
-              <option value="block">限制模式</option>
-              <option value="allow">允许模式</option>
-              <option value="all">全天模式</option>
-            </select>
-          </div>
-          <div className="grid grid-cols-3 gap-3 items-center">
-            <label className="text-sm" style={{ color: "var(--t2)" }}>免费时段开始</label>
-            <input
-              type="time"
-              value={settings.WORKDAY_FREE_START || "08:00"}
-              onChange={(e) => update("WORKDAY_FREE_START", e.target.value)}
-              className={glassInput}
-              style={inputStyle}
-            />
-          </div>
-          <div className="grid grid-cols-3 gap-3 items-center">
-            <label className="text-sm" style={{ color: "var(--t2)" }}>免费时段结束</label>
-            <input
-              type="time"
-              value={settings.WORKDAY_FREE_END || "21:00"}
-              onChange={(e) => update("WORKDAY_FREE_END", e.target.value)}
-              className={glassInput}
-              style={inputStyle}
-            />
-          </div>
-          <div className="grid grid-cols-3 gap-3 items-center">
-            <label className="text-sm" style={{ color: "var(--t2)" }}>每日限额（分钟）</label>
+            <label className="text-sm" style={{ color: "var(--t2)" }}>每日额度（分钟）</label>
             <input
               type="number"
-              value={settings.DEFAULT_LIMIT || "60"}
-              onChange={(e) => update("DEFAULT_LIMIT", e.target.value)}
+              value={settings.DAILY_LIMIT || "60"}
+              onChange={(e) => update("DAILY_LIMIT", e.target.value)}
               className={glassInput}
               style={inputStyle}
             />

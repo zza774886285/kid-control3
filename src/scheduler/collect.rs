@@ -96,11 +96,10 @@ pub async fn run_control_cycle(
     dns_collector: &DnsCollector,
 ) {
     let now = chrono::Local::now();
-    let day_type = config.get_day_type();
     let tablets = config.get_tablets();
     let block_list = config.get("BLOCK_LIST").unwrap_or_else(|| "block-tablet".to_string());
 
-    info!("开始管控检查 | 日期类型: {} | 时间: {}", day_type, now.format("%H:%M:%S"));
+    info!("开始管控检查 | 时间: {}", now.format("%H:%M:%S"));
 
     // 只有当某个设备 IP 为空时才查 ARP（通常 IP 已在配置中固定，跳过查询）
     let need_arp = tablets.values().any(|t| t.ip.is_empty());
@@ -131,44 +130,15 @@ pub async fn run_control_cycle(
         let switch_key = format!("SWITCH_{}", mac_upper);
         let switch_enabled = config.get(&switch_key).map(|v| v == "true");
 
-        let time_mode = config.get_time_mode(&day_type);
-        let (start, end) = config.get_time_config(&day_type);
-        let in_window = config.is_in_time_window(&start, &end);
-        let time_block = match time_mode.as_str() {
-            "all" => false,
-            "allow" => !in_window,
-            _ => in_window, // "block" mode
-        };
-
         if switch_enabled == Some(false) {
-            info!("  {}: 开关关闭 → 强制封禁", name);
+            info!("  {}: 开关关闭 → 封禁", name);
             block(ros, &ip, &tablet.ipv6_comment, &block_list, &mac_upper).await;
             persist_block_state(config, &mac_upper).await;
             continue;
         }
 
-        if switch_enabled == Some(true) && !time_block {
-            // 先检查每日限额（含 override），即使在允许时段内也要检查
-            let limit_sec = config.get_current_limit(&mac_upper, &day_type);
-            if limit_sec >= 0 {
-                let today = now.format("%Y-%m-%d").to_string();
-                let (active_min, _, _) = db.get_daily_active_minutes(&mac_upper, &today);
-                let usage_sec = active_min * 60;
-                if usage_sec >= limit_sec {
-                    info!("  {}: 超限 ({}s >= {}s) → 封禁", name, usage_sec, limit_sec);
-                    block(ros, &ip, &tablet.ipv6_comment, &block_list, &mac_upper).await;
-                    persist_block_state(config, &mac_upper).await;
-                    continue;
-                }
-            }
-            info!("  {}: 开关开启 + {} → 放行", name, if in_window { "允许时段" } else { "非禁止时段" });
-            unblock(ros, &ip, &tablet.ipv6_comment, &block_list, &mac_upper).await;
-            persist_block_state(config, &mac_upper).await;
-            continue;
-        }
-
         // 检查每日限额（含 override）
-        let limit_sec = config.get_current_limit(&mac_upper, &day_type);
+        let limit_sec = config.get_current_limit(&mac_upper);
         if limit_sec >= 0 {
             let today = now.format("%Y-%m-%d").to_string();
             let (active_min, _, _) = db.get_daily_active_minutes(&mac_upper, &today);
@@ -181,15 +151,9 @@ pub async fn run_control_cycle(
             }
         }
 
-        if time_block {
-            info!("  {}: 时间限制 → 封禁", name);
-            block(ros, &ip, &tablet.ipv6_comment, &block_list, &mac_upper).await;
-            persist_block_state(config, &mac_upper).await;
-        } else {
-            info!("  {}: 允许 → 放行", name);
-            unblock(ros, &ip, &tablet.ipv6_comment, &block_list, &mac_upper).await;
-            persist_block_state(config, &mac_upper).await;
-        }
+        info!("  {}: 放行", name);
+        unblock(ros, &ip, &tablet.ipv6_comment, &block_list, &mac_upper).await;
+        persist_block_state(config, &mac_upper).await;
     }
 
     info!("管控执行完成");

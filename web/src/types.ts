@@ -26,7 +26,6 @@ export interface UserData {
 
 export interface ControlStatus {
   devices: ControlDevice[];
-  day_type: string;
 }
 
 export interface ControlDevice {

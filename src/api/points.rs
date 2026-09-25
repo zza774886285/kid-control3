@@ -171,8 +171,7 @@ pub async fn exchange_points(
         let tablets = state.config.get_tablets();
         if let Some(tablet) = tablets.get(tablet_key) {
             let mac = tablet.mac.clone();
-            let day_type = state.config.get_day_type();
-            let current = state.config.get_current_limit(&mac.to_uppercase(), &day_type);
+            let current = state.config.get_current_limit(&mac.to_uppercase());
             let new_val = current + minutes * 60;
             let key = format!("LIMIT_OVERRIDE_{}_{}", mac.to_uppercase(),
                 chrono::Local::now().format("%Y-%m-%d"));
