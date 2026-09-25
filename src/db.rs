@@ -166,6 +166,18 @@ impl Database {
                 END",
             [],
         )?;
+        conn.execute_batch("
+            DELETE FROM video_windows WHERE id NOT IN (
+              SELECT id FROM (
+                SELECT id, ROW_NUMBER() OVER (
+                  PARTITION BY mac, ts
+                  ORDER BY (video_status = 'ACTIVE') DESC, id DESC
+                ) rn FROM video_windows
+              ) WHERE rn = 1
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_video_windows_mac_ts
+              ON video_windows(mac, ts);
+        ")?;
         info!("数据库表初始化完成");
         Ok(())
     }
@@ -219,7 +231,20 @@ impl Database {
         conn.execute(
             "INSERT INTO video_windows (ts, date, mac, ip, download_bytes, dns_total_queries,
              video_domains, video_platforms, video_score, video_status, activity_type)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(mac, ts) DO UPDATE SET
+               ip = excluded.ip,
+               download_bytes = excluded.download_bytes,
+               dns_total_queries = excluded.dns_total_queries,
+               video_domains = excluded.video_domains,
+               video_platforms = excluded.video_platforms,
+               video_score = excluded.video_score,
+               video_status = CASE
+                 WHEN excluded.video_status = 'ACTIVE' OR video_windows.video_status = 'ACTIVE' THEN 'ACTIVE'
+                 ELSE excluded.video_status END,
+               activity_type = CASE
+                 WHEN excluded.video_status = 'ACTIVE' THEN excluded.activity_type
+                 ELSE video_windows.activity_type END",
             params![ts, date, mac, ip, download_bytes, dns_total_queries,
                     video_domains, video_platforms, video_score, video_status, activity_type],
         )?;
