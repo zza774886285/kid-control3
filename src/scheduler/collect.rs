@@ -218,6 +218,14 @@ pub async fn run_control_cycle(
     info!("管控执行完成");
 }
 
+/// 封禁中或处于大人模式时，采集阶段强制记 IDLE（不计入用量）
+fn should_force_idle(blocked: bool, paused: bool) -> bool { blocked || paused }
+
+/// 读取该设备是否处于大人模式
+fn is_paused(config: &ConfigManager, mac_upper: &str) -> bool {
+    config.get(&format!("PAUSE_{}", mac_upper)).map(|v| v == "true").unwrap_or(false)
+}
+
 pub async fn run_data_collection(
     ros: &RosClient,
     config: &ConfigManager,
@@ -235,10 +243,11 @@ pub async fn run_data_collection(
     for (mac, tablet) in &tablets {
         let mac_upper = mac.to_uppercase();
         let ip = if tablet.ip.is_empty() { continue } else { tablet.ip.clone() };
-        let force_idle = {
+        let blocked = {
             let state = FW_STATE.read().await;
             state.get(&mac_upper).copied().unwrap_or(false)
         };
+        let force_idle = should_force_idle(blocked, is_paused(config, &mac_upper));
 
         let dns_domains = dns_collector.fetch_recent_domains(&http_client, &mac_upper, &ip).await;
 
@@ -312,6 +321,21 @@ mod tests {
                 MAC, "10.1.1.9", ts, dns, 5, 200_000, &[], force_idle, &test_registry(), db,
             )
             .status
+    }
+
+    #[test]
+    fn force_idle_when_paused() {
+        assert!(should_force_idle(false, true));
+    }
+
+    #[test]
+    fn force_idle_when_blocked() {
+        assert!(should_force_idle(true, false));
+    }
+
+    #[test]
+    fn no_force_idle_when_allowed() {
+        assert!(!should_force_idle(false, false));
     }
 
     /// 有信号时正常计入使用时间
