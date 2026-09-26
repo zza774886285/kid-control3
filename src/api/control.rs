@@ -9,7 +9,11 @@ use crate::scheduler::collect::apply_now;
 #[derive(Deserialize)]
 pub struct AdjustRequest {
     pub mac: String,
-    pub delta: i64, // 秒
+    #[serde(default)]
+    pub delta: i64,
+    /// 直接设定今日剩余分钟数（优先于 delta）
+    #[serde(default)]
+    pub set_remaining_min: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -34,7 +38,10 @@ pub async fn kid_adjust(
 
     let current = state.config.get_current_limit(&mac_upper);
     let usage_sec = state.db.get_daily_active_minutes(&mac_upper, &today).0 * 60;
-    let new_val = (current.max(usage_sec) + req.delta).max(0);
+    let new_val = match req.set_remaining_min {
+        Some(mins) => (usage_sec + mins.max(0) * 60).max(0),
+        None => (current.max(usage_sec) + req.delta).max(0),
+    };
     let base_limit = state.config.get_daily_limit();
 
     let result = if new_val == base_limit {

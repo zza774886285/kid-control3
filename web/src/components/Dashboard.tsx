@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { UserData, RecentDeviceActivity } from "../types";
-import { fetchData, fetchRecentActivity, kidAdjust, pauseDevice, switchDevice } from "../api";
+import { fetchData, fetchRecentActivity, kidAdjust, kidSetRemaining, pauseDevice, switchDevice } from "../api";
 import RealTimeActivity from "./RealTimeActivity";
 
 function MiniBar({
@@ -53,6 +53,7 @@ export default function Dashboard() {
   const [data, setData] = useState<UserData | null>(null);
   const [recentActivity, setRecentActivity] = useState<RecentDeviceActivity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [remainingInputs, setRemainingInputs] = useState<Record<string, string>>({});
 
   // 主数据加载
   const load = useCallback(async () => {
@@ -305,6 +306,40 @@ export default function Dashboard() {
                     }}
                   >
                     -30min
+                  </button>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    placeholder="分钟"
+                    value={remainingInputs[dev.mac] ?? ""}
+                    onChange={(e) => setRemainingInputs((prev) => ({ ...prev, [dev.mac]: e.target.value }))}
+                    className="w-16 px-2 py-1.5 rounded-full text-xs text-center outline-none transition-all"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      color: "var(--t1)",
+                    }}
+                  />
+                  <button
+                    onClick={async () => {
+                      const raw = (remainingInputs[dev.mac] ?? "").trim();
+                      if (raw === "") return;
+                      const minutes = Number(raw);
+                      if (!Number.isInteger(minutes) || minutes < 0) return;
+                      try {
+                        await kidSetRemaining(dev.mac, minutes);
+                        setTimeout(load, 500);
+                      } catch (e) { console.error(e); }
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer"
+                    style={{
+                      background: "var(--acc-g2)",
+                      border: "1px solid var(--acc-g)",
+                      color: "var(--acc)",
+                    }}
+                  >
+                    设定
                   </button>
                   <button
                     onClick={async () => {

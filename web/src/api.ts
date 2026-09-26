@@ -33,6 +33,11 @@ export async function kidAdjust(mac: string, delta: number) {
   return data;
 }
 
+export async function kidSetRemaining(mac: string, minutes: number) {
+  const { data } = await api.post("/kid-adjust", { mac, set_remaining_min: minutes });
+  return data;
+}
+
 export async function switchDevice(mac: string, enabled: boolean) {
   const { data } = await api.post("/switch", { mac, enabled });
   return data;
