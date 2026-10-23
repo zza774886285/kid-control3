@@ -12,7 +12,8 @@ function MiniBar({
   max: number;
   color: string;
 }) {
-  const pct = Math.min((value / max) * 100, 100);
+  // max<=0 表示今天额度为 0（已用完），直接按 100% 画，避免 0/0 算出 NaN
+  const pct = max <= 0 ? 100 : Math.min((value / max) * 100, 100);
   return (
     <div
       className="h-1.5 rounded-full overflow-hidden"
@@ -152,10 +153,15 @@ export default function Dashboard() {
           return a.name.localeCompare(b.name, "zh");
         }).map((dev) => {
           const dc = deviceColor(dev.name);
-          const limitMin = Math.round((dev.limit_sec || 7200) / 60);
+          // limit_sec 为 0 是有效值（今天额度已用完），不能用 falsy 判断；
+          // 只有接口真没返回数字时才显示 "--"，不用假额度掩盖后端问题
+          const limitMin = Number.isFinite(dev.limit_sec)
+            ? Math.round(dev.limit_sec / 60)
+            : null;
           const usageMin = Math.round((dev.usage_sec || 0) / 60);
-          const remainMin = Math.max(limitMin - usageMin, 0);
-          const over = usageMin >= limitMin;
+          const remainMin =
+            limitMin === null ? null : Math.max(limitMin - usageMin, 0);
+          const over = limitMin !== null && usageMin >= limitMin;
           const isPaused = data?.config?.[`PAUSE_${dev.mac.toUpperCase()}`] === "true";
           const isBlocked = data?.config?.[`SWITCH_${dev.mac.toUpperCase()}`] === "false";
 
@@ -225,7 +231,7 @@ export default function Dashboard() {
                         color: over ? "var(--err)" : "var(--t1)",
                       }}
                     >
-                      {remainMin}
+                      {remainMin ?? "--"}
                     </div>
                     <div className="text-xs" style={{ color: "var(--t3)" }}>
                       剩余分钟
@@ -254,13 +260,15 @@ export default function Dashboard() {
                     style={{ color: "var(--t3)" }}
                   >
                     <span>已用 {usageMin}min</span>
-                    <span>限额 {limitMin}min</span>
+                    <span>限额 {limitMin ?? "--"}min</span>
                   </div>
-                  <MiniBar
-                    value={usageMin}
-                    max={limitMin}
-                    color={over ? "var(--err)" : dc.c}
-                  />
+                  {limitMin !== null && (
+                    <MiniBar
+                      value={usageMin}
+                      max={limitMin}
+                      color={over ? "var(--err)" : dc.c}
+                    />
+                  )}
                 </div>
 
                 {/* 今日活动 */}
