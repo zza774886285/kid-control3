@@ -195,7 +195,11 @@ async fn main() {
                 &state_clone.http_client, &state_clone.detector, &state_clone.dns_collector,
                 &state_clone.ip_registry, &state_clone.registry_path,
             ).await;
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            // 对齐到下一个整分钟再采集。固定 sleep(60) 会因处理耗时累积，
+            // 偶尔整整跨过一分钟，导致 video_windows 少一行、时间线出现空档
+            let now = chrono::Local::now().timestamp();
+            let wait = (60 - (now % 60)).max(5) as u64;
+            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
         }
     });
 
