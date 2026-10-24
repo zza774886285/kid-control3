@@ -83,10 +83,29 @@ impl ActivityDetector {
             last_active_ts: None,
         });
 
+        // DPI 优先（B 口径）：最近 60 秒内有目标 App 的连接才算 ACTIVE，不做衰减。
+        // DPI 不可用（未配置/过期/查询失败）时 last_activity 返回 None，回落到下面的 DNS + 衰减逻辑。
+        let dpi_hit = crate::detector::dpi_source::last_activity(mac);
+        let dpi_active = dpi_hit
+            .as_ref()
+            .map(|(_, end)| ts as i64 - *end <= 60)
+            .unwrap_or(false);
+
         let status = if force_idle {
             state.idle_count = DECAY_WINDOWS;
             state.last_active_ts = None;
             "IDLE".to_string()
+        } else if dpi_hit.is_some() {
+            // DPI 在线：只认真实连接，空档立即算 IDLE（时间线不留尾巴）
+            if dpi_active {
+                state.idle_count = 0;
+                state.last_active_ts = Some(ts);
+                "ACTIVE".to_string()
+            } else {
+                state.idle_count = DECAY_WINDOWS;
+                state.last_active_ts = None;
+                "IDLE".to_string()
+            }
         } else if signal {
             state.idle_count = 0;
             state.last_active_ts = Some(ts);
@@ -102,7 +121,10 @@ impl ActivityDetector {
         };
 
         let activity_type = if status == "ACTIVE" {
-            cls.category.to_lowercase()
+            match (&dpi_hit, dpi_active) {
+                (Some((app, _)), true) => app.to_lowercase(),
+                _ => cls.category.to_lowercase(),
+            }
         } else {
             "none".to_string()
         };

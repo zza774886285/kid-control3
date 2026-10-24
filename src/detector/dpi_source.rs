@@ -24,12 +24,16 @@ const REFRESH_SEC: u64 = 60;
 struct Cache {
     /// mac(大写) -> (active_min, video_min, game_min)
     data: HashMap<String, (i64, i64, i64)>,
+    /// mac(大写) -> (app_id, 最后一条目标 App 连接的结束时间戳)
+    /// 给活动判定用：最近 60 秒内有连接才算 ACTIVE（B 口径，不衰减）
+    last: HashMap<String, (String, i64)>,
     ts: Option<Instant>,
 }
 
 static CACHE: Lazy<RwLock<Cache>> = Lazy::new(|| {
     RwLock::new(Cache {
         data: HashMap::new(),
+        last: HashMap::new(),
         ts: None,
     })
 });
@@ -42,6 +46,17 @@ pub fn cached(mac: &str) -> Option<(i64, i64, i64)> {
         return None;
     }
     c.data.get(&mac.to_uppercase()).copied()
+}
+
+/// 最近一条目标 App 连接（app_id, 结束时间戳）。用于活动判定（B 口径：不衰减）。
+/// None 表示 DPI 不可用，调用方应回退到原来的 DNS 轮询逻辑。
+pub fn last_activity(mac: &str) -> Option<(String, i64)> {
+    let c = CACHE.read().ok()?;
+    let ts = c.ts?;
+    if ts.elapsed() > Duration::from_secs(STALE_SEC) {
+        return None;
+    }
+    c.last.get(&mac.to_uppercase()).cloned()
 }
 
 /// 当前数据源状态，供日志/调试用
@@ -226,6 +241,7 @@ async fn refresh(
 
     let mut per_host: HashMap<String, (Vec<(i64, i64)>, Vec<(i64, i64)>, Vec<(i64, i64)>)> =
         HashMap::new();
+    let mut last: HashMap<String, (String, i64)> = HashMap::new();
 
     for row in rows {
         let host: String = row.try_get("host")?;
@@ -240,8 +256,14 @@ async fn refresh(
         }
         // 与 DPI 面板口径一致：单条连接至少按 60 秒计
         let e = e.max(s + 60);
+        let mac_key = host.to_uppercase();
+        // 记录"最近一条目标 App 连接"，供活动判定用
+        let slot = last.entry(mac_key.clone()).or_insert_with(|| (app.clone(), 0));
+        if e >= slot.1 {
+            *slot = (app.clone(), e);
+        }
         let entry = per_host
-            .entry(host.to_uppercase())
+            .entry(mac_key)
             .or_insert_with(|| (Vec::new(), Vec::new(), Vec::new()));
         entry.0.push((s, e)); // 全部娱乐
         if is_video {
@@ -266,6 +288,7 @@ async fn refresh(
 
     let mut c = CACHE.write().map_err(|_| anyhow::anyhow!("缓存锁中毒"))?;
     c.data = data;
+    c.last = last;
     c.ts = Some(Instant::now());
     Ok(n)
 }
