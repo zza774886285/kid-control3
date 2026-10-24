@@ -92,6 +92,14 @@ impl ActivityDetector {
         } else {
             None
         };
+        // 诊断：只看家里那两台平板，确认 DPI 判定分支是否命中
+        if mac == "A0:DE:0F:45:2D:39" || mac == "80:5F:C5:31:4D:5E" {
+            tracing::info!(
+                "[dpi] mac={} at={} ok={} app={:?} spans={}",
+                mac, ts as i64, dpi_ok, dpi_app,
+                crate::detector::dpi_source::span_count(mac)
+            );
+        }
 
         let status = if force_idle {
             state.idle_count = DECAY_WINDOWS;

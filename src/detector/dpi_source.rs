@@ -60,6 +60,15 @@ pub fn available() -> bool {
     }
 }
 
+/// 诊断用：该设备当前缓存里有多少条目标 App 区间
+pub fn span_count(mac: &str) -> usize {
+    CACHE
+        .read()
+        .ok()
+        .and_then(|c| c.spans.get(&mac.to_uppercase()).map(|v| v.len()))
+        .unwrap_or(0)
+}
+
 /// 时刻 `at` 是否落在该设备某条目标 App 连接的区间内；落在则返回那个 app_id。
 /// 多条重叠时取结束时间最晚的一条（通常是正在进行的那条长连接）。
 pub fn covering(mac: &str, at: i64) -> Option<String> {
