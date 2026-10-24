@@ -7,6 +7,9 @@ use super::domain_rules::classify_domains;
 
 const DECAY_WINDOWS: i32 = 10;
 const BW_THRESHOLD: i64 = 50_000;
+/// DPI 判定窗口（秒）：最后一条目标 App 连接结束后这么多秒内仍算 ACTIVE。
+/// 取 120 是为了容忍「DPI 缓存刷新」与「本采集」之间最多一轮的错位。
+const ACTIVE_WINDOW: i64 = 120;
 
 struct DeviceState {
     idle_count: i32,
@@ -83,12 +86,14 @@ impl ActivityDetector {
             last_active_ts: None,
         });
 
-        // DPI 优先（B 口径）：最近 60 秒内有目标 App 的连接才算 ACTIVE，不做衰减。
+        // DPI 优先（B 口径）：最近一次目标 App 连接结束后 ACTIVE_WINDOW 秒内算 ACTIVE，不做衰减。
+        // 窗口取 120 秒而不是 60：DPI 缓存和本采集都是 60 秒一轮，两者不同频时
+        // 会读到上一轮的缓存，60 秒窗口会判不出活动，时间线出现「ACTIVE/IDLE 跳变」。
         // DPI 不可用（未配置/过期/查询失败）时 last_activity 返回 None，回落到下面的 DNS + 衰减逻辑。
         let dpi_hit = crate::detector::dpi_source::last_activity(mac);
         let dpi_active = dpi_hit
             .as_ref()
-            .map(|(_, end)| ts as i64 - *end <= 60)
+            .map(|(_, end)| ts as i64 - *end <= ACTIVE_WINDOW)
             .unwrap_or(false);
 
         let status = if force_idle {
