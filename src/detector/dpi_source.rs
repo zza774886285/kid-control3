@@ -25,16 +25,17 @@ const REFRESH_SEC: u64 = 30;
 struct Cache {
     /// mac(大写) -> (active_min, video_min, game_min)
     data: HashMap<String, (i64, i64, i64)>,
-    /// mac(大写) -> [(start, end, app_id)]，今天全部目标 App 的原始区间。
-    /// 活动判定用「这一分钟是否落在某条连接区间内」，和时长口径同源，不怕落库延迟
-    spans: HashMap<String, Vec<(i64, i64, String)>>,
+    /// mac(大写) -> [(分钟时间戳, app_id)]，最近若干分钟的目标 App 分钟行。
+    /// 判定用 traffic_minute 而不是 access_log：后者要等连接结束才落库，
+    /// 长连接进行中查不到，会整段判成 IDLE；分钟表只落后约 1 分钟
+    minutes: HashMap<String, Vec<(i64, String)>>,
     ts: Option<Instant>,
 }
 
 static CACHE: Lazy<RwLock<Cache>> = Lazy::new(|| {
     RwLock::new(Cache {
         data: HashMap::new(),
-        spans: HashMap::new(),
+        minutes: HashMap::new(),
         ts: None,
     })
 });
@@ -60,29 +61,29 @@ pub fn available() -> bool {
     }
 }
 
-/// 诊断用：该设备当前缓存里有多少条目标 App 区间
+/// 诊断用：该设备缓存里有多少条分钟行
 pub fn span_count(mac: &str) -> usize {
     CACHE
         .read()
         .ok()
-        .and_then(|c| c.spans.get(&mac.to_uppercase()).map(|v| v.len()))
+        .and_then(|c| c.minutes.get(&mac.to_uppercase()).map(|v| v.len()))
         .unwrap_or(0)
 }
 
-/// 时刻 `at` 是否落在该设备某条目标 App 连接的区间内；落在则返回那个 app_id。
-/// 多条重叠时取结束时间最晚的一条（通常是正在进行的那条长连接）。
-pub fn covering(mac: &str, at: i64) -> Option<String> {
+/// 时刻 `at` 前多少秒内有过目标 App 的分钟行，就返回那个 app_id。
+/// 窗口取 180 秒：traffic_minute 落后约 1 分钟，再加上采集与刷新错位。
+pub fn active_at(mac: &str, at: i64) -> Option<String> {
     let c = CACHE.read().ok()?;
     let fresh = c.ts.map(|t| t.elapsed() <= Duration::from_secs(STALE_SEC))?;
     if !fresh {
         return None;
     }
-    c.spans
+    c.minutes
         .get(&mac.to_uppercase())?
         .iter()
-        .filter(|(s, e, _)| *s <= at && at <= *e)
-        .max_by_key(|(_, e, _)| *e)
-        .map(|(_, _, app)| app.clone())
+        .filter(|(m, _)| *m <= at + 60 && at - *m <= 180)
+        .max_by_key(|(m, _)| *m)
+        .map(|(_, app)| app.clone())
 }
 
 /// 当前数据源状态，供日志/调试用
@@ -267,7 +268,6 @@ async fn refresh(
 
     let mut per_host: HashMap<String, (Vec<(i64, i64)>, Vec<(i64, i64)>, Vec<(i64, i64)>)> =
         HashMap::new();
-    let mut spans: HashMap<String, Vec<(i64, i64, String)>> = HashMap::new();
 
     for row in rows {
         let host: String = row.try_get("host")?;
@@ -283,8 +283,6 @@ async fn refresh(
         // 与 DPI 面板口径一致：单条连接至少按 60 秒计
         let e = e.max(s + 60);
         let mac_key = host.to_uppercase();
-        // 原始区间（不合并），供活动判定按「覆盖」判断
-        spans.entry(mac_key.clone()).or_default().push((s, e, app.clone()));
         let entry = per_host
             .entry(mac_key)
             .or_insert_with(|| (Vec::new(), Vec::new(), Vec::new()));
@@ -294,6 +292,30 @@ async fn refresh(
         }
         if is_game {
             entry.2.push((s, e));
+        }
+    }
+
+    // ---- 活动判定数据：traffic_minute 最近 15 分钟的目标 App 分钟行 ----
+    // 不用 access_log：它要等连接结束才落库，长连接进行中查不到（会整段判 IDLE）
+    let mut minutes: HashMap<String, Vec<(i64, String)>> = HashMap::new();
+    let mut qb2 = sqlx::QueryBuilder::new("SELECT host, app, ts FROM traffic_minute WHERE ts >= ");
+    qb2.push_bind(now_ts - 900);
+    qb2.push(" AND app IN (");
+    {
+        let mut sep = qb2.separated(", ");
+        for a in video_apps.iter().chain(game_apps.iter()) {
+            sep.push_bind(a.clone());
+        }
+    }
+    qb2.push(")");
+    if let Ok(mrows) = qb2.build().fetch_all(pool).await {
+        for row in mrows {
+            let h: String = row.try_get("host").unwrap_or_default();
+            let a: String = row.try_get("app").unwrap_or_default();
+            let t: i64 = row.try_get("ts").unwrap_or(0);
+            if !h.is_empty() && !a.is_empty() && t > 0 {
+                minutes.entry(h.to_uppercase()).or_default().push((t, a));
+            }
         }
     }
 
@@ -311,7 +333,7 @@ async fn refresh(
 
     let mut c = CACHE.write().map_err(|_| anyhow::anyhow!("缓存锁中毒"))?;
     c.data = data;
-    c.spans = spans;
+    c.minutes = minutes;
     c.ts = Some(Instant::now());
     Ok(n)
 }

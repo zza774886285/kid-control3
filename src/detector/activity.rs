@@ -88,7 +88,7 @@ impl ActivityDetector {
         // DPI 不可用（未配置/缓存过期/查询失败）时回落到下面的 DNS + 衰减逻辑。
         let dpi_ok = crate::detector::dpi_source::available();
         let dpi_app = if dpi_ok {
-            crate::detector::dpi_source::covering(mac, ts as i64)
+            crate::detector::dpi_source::active_at(mac, ts as i64)
         } else {
             None
         };
