@@ -18,8 +18,9 @@ use tracing::{info, warn};
 
 /// 缓存超过这个秒数没用更新过，就认为 DPI 不可用，回退原逻辑
 const STALE_SEC: u64 = 300;
-/// 刷新间隔
-const REFRESH_SEC: u64 = 60;
+/// 刷新间隔。取 30 秒而不是 60：access_log 有落库延迟，
+/// 刷新快一点能让活动判定用上更新的数据，减少时间线抖动。
+const REFRESH_SEC: u64 = 30;
 
 struct Cache {
     /// mac(大写) -> (active_min, video_min, game_min)

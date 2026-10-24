@@ -8,8 +8,9 @@ use super::domain_rules::classify_domains;
 const DECAY_WINDOWS: i32 = 10;
 const BW_THRESHOLD: i64 = 50_000;
 /// DPI 判定窗口（秒）：最后一条目标 App 连接结束后这么多秒内仍算 ACTIVE。
-/// 取 120 是为了容忍「DPI 缓存刷新」与「本采集」之间最多一轮的错位。
-const ACTIVE_WINDOW: i64 = 120;
+/// 取 180：DPI 的 access_log 先在内存聚合再批量落库，本身有 1–2 分钟延迟，
+/// 加上缓存刷新与本采集的错位，120 秒会卡在边界导致 ACTIVE/IDLE 抖动。
+const ACTIVE_WINDOW: i64 = 180;
 
 struct DeviceState {
     idle_count: i32,
