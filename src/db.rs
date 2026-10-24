@@ -277,6 +277,14 @@ impl Database {
     }
 
     pub fn get_daily_active_minutes(&self, mac: &str, date: &str) -> (i64, i64, i64) {
+        // 优先用 DPI 的连接级区间并集（更准，尤其长连接）；
+        // DPI 未配置 / 数据过期 / 查询失败时 cached() 返回 None，自动回退到 video_windows 计数
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        if date == today {
+            if let Some(v) = crate::detector::dpi_source::cached(mac) {
+                return v;
+            }
+        }
         let windows = self.get_video_windows(mac, date);
         if windows.is_empty() {
             return (0, 0, 0);

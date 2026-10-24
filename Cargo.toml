@@ -21,6 +21,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 
 # Database
 rusqlite = { version = "0.32", features = ["bundled"] }
+# DPI 数据源：读 ROS-DPI 的 MySQL（只用运行时查询，不用宏，避免编译期连库）
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "mysql"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }

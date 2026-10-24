@@ -123,6 +123,11 @@ async fn main() {
         config: ConfigManager::new(db.clone()),
     });
 
+    // DPI 数据源（ROS-DPI 的 MySQL）：启用后 get_daily_active_minutes 优先用它的连接级时长
+    tokio::spawn(async move {
+        detector::dpi_source::run_loop().await;
+    });
+
     // Admin API 路由（管理端）
     let admin_api_routes: Router = Router::new()
         .route("/api/data", get(api::data::get_data))
