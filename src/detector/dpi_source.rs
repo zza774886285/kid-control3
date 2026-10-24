@@ -25,16 +25,16 @@ const REFRESH_SEC: u64 = 30;
 struct Cache {
     /// mac(大写) -> (active_min, video_min, game_min)
     data: HashMap<String, (i64, i64, i64)>,
-    /// mac(大写) -> (app_id, 最后一条目标 App 连接的结束时间戳)
-    /// 给活动判定用：最近 60 秒内有连接才算 ACTIVE（B 口径，不衰减）
-    last: HashMap<String, (String, i64)>,
+    /// mac(大写) -> [(start, end, app_id)]，今天全部目标 App 的原始区间。
+    /// 活动判定用「这一分钟是否落在某条连接区间内」，和时长口径同源，不怕落库延迟
+    spans: HashMap<String, Vec<(i64, i64, String)>>,
     ts: Option<Instant>,
 }
 
 static CACHE: Lazy<RwLock<Cache>> = Lazy::new(|| {
     RwLock::new(Cache {
         data: HashMap::new(),
-        last: HashMap::new(),
+        spans: HashMap::new(),
         ts: None,
     })
 });
@@ -49,15 +49,31 @@ pub fn cached(mac: &str) -> Option<(i64, i64, i64)> {
     c.data.get(&mac.to_uppercase()).copied()
 }
 
-/// 最近一条目标 App 连接（app_id, 结束时间戳）。用于活动判定（B 口径：不衰减）。
-/// None 表示 DPI 不可用，调用方应回退到原来的 DNS 轮询逻辑。
-pub fn last_activity(mac: &str) -> Option<(String, i64)> {
+/// DPI 数据是否可用（缓存新鲜）。false 时调用方应回退到原来的 DNS 轮询逻辑。
+pub fn available() -> bool {
+    match CACHE.read() {
+        Ok(c) => c
+            .ts
+            .map(|t| t.elapsed() <= Duration::from_secs(STALE_SEC))
+            .unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+/// 时刻 `at` 是否落在该设备某条目标 App 连接的区间内；落在则返回那个 app_id。
+/// 多条重叠时取结束时间最晚的一条（通常是正在进行的那条长连接）。
+pub fn covering(mac: &str, at: i64) -> Option<String> {
     let c = CACHE.read().ok()?;
-    let ts = c.ts?;
-    if ts.elapsed() > Duration::from_secs(STALE_SEC) {
+    let fresh = c.ts.map(|t| t.elapsed() <= Duration::from_secs(STALE_SEC))?;
+    if !fresh {
         return None;
     }
-    c.last.get(&mac.to_uppercase()).cloned()
+    c.spans
+        .get(&mac.to_uppercase())?
+        .iter()
+        .filter(|(s, e, _)| *s <= at && at <= *e)
+        .max_by_key(|(_, e, _)| *e)
+        .map(|(_, _, app)| app.clone())
 }
 
 /// 当前数据源状态，供日志/调试用
@@ -242,7 +258,7 @@ async fn refresh(
 
     let mut per_host: HashMap<String, (Vec<(i64, i64)>, Vec<(i64, i64)>, Vec<(i64, i64)>)> =
         HashMap::new();
-    let mut last: HashMap<String, (String, i64)> = HashMap::new();
+    let mut spans: HashMap<String, Vec<(i64, i64, String)>> = HashMap::new();
 
     for row in rows {
         let host: String = row.try_get("host")?;
@@ -258,11 +274,8 @@ async fn refresh(
         // 与 DPI 面板口径一致：单条连接至少按 60 秒计
         let e = e.max(s + 60);
         let mac_key = host.to_uppercase();
-        // 记录"最近一条目标 App 连接"，供活动判定用
-        let slot = last.entry(mac_key.clone()).or_insert_with(|| (app.clone(), 0));
-        if e >= slot.1 {
-            *slot = (app.clone(), e);
-        }
+        // 原始区间（不合并），供活动判定按「覆盖」判断
+        spans.entry(mac_key.clone()).or_default().push((s, e, app.clone()));
         let entry = per_host
             .entry(mac_key)
             .or_insert_with(|| (Vec::new(), Vec::new(), Vec::new()));
@@ -289,7 +302,7 @@ async fn refresh(
 
     let mut c = CACHE.write().map_err(|_| anyhow::anyhow!("缓存锁中毒"))?;
     c.data = data;
-    c.last = last;
+    c.spans = spans;
     c.ts = Some(Instant::now());
     Ok(n)
 }

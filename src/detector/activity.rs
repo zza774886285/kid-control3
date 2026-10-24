@@ -7,10 +7,6 @@ use super::domain_rules::classify_domains;
 
 const DECAY_WINDOWS: i32 = 10;
 const BW_THRESHOLD: i64 = 50_000;
-/// DPI 判定窗口（秒）：最后一条目标 App 连接结束后这么多秒内仍算 ACTIVE。
-/// 取 180：DPI 的 access_log 先在内存聚合再批量落库，本身有 1–2 分钟延迟，
-/// 加上缓存刷新与本采集的错位，120 秒会卡在边界导致 ACTIVE/IDLE 抖动。
-const ACTIVE_WINDOW: i64 = 180;
 
 struct DeviceState {
     idle_count: i32,
@@ -87,23 +83,23 @@ impl ActivityDetector {
             last_active_ts: None,
         });
 
-        // DPI 优先（B 口径）：最近一次目标 App 连接结束后 ACTIVE_WINDOW 秒内算 ACTIVE，不做衰减。
-        // 窗口取 120 秒而不是 60：DPI 缓存和本采集都是 60 秒一轮，两者不同频时
-        // 会读到上一轮的缓存，60 秒窗口会判不出活动，时间线出现「ACTIVE/IDLE 跳变」。
-        // DPI 不可用（未配置/过期/查询失败）时 last_activity 返回 None，回落到下面的 DNS + 衰减逻辑。
-        let dpi_hit = crate::detector::dpi_source::last_activity(mac);
-        let dpi_active = dpi_hit
-            .as_ref()
-            .map(|(_, end)| ts as i64 - *end <= ACTIVE_WINDOW)
-            .unwrap_or(false);
+        // DPI 优先：看「这一分钟是否落在某条目标 App 连接的区间内」（和时长统计同源），
+        // 长连接（如游戏 login/反作弊的 keep-alive）中途不会掉 IDLE，也不受落库延迟影响。
+        // DPI 不可用（未配置/缓存过期/查询失败）时回落到下面的 DNS + 衰减逻辑。
+        let dpi_ok = crate::detector::dpi_source::available();
+        let dpi_app = if dpi_ok {
+            crate::detector::dpi_source::covering(mac, ts as i64)
+        } else {
+            None
+        };
 
         let status = if force_idle {
             state.idle_count = DECAY_WINDOWS;
             state.last_active_ts = None;
             "IDLE".to_string()
-        } else if dpi_hit.is_some() {
-            // DPI 在线：只认真实连接，空档立即算 IDLE（时间线不留尾巴）
-            if dpi_active {
+        } else if dpi_ok {
+            // DPI 在线：按区间覆盖判定，不在任何区间内就是 IDLE
+            if dpi_app.is_some() {
                 state.idle_count = 0;
                 state.last_active_ts = Some(ts);
                 "ACTIVE".to_string()
@@ -127,9 +123,9 @@ impl ActivityDetector {
         };
 
         let activity_type = if status == "ACTIVE" {
-            match (&dpi_hit, dpi_active) {
-                (Some((app, _)), true) => app.to_lowercase(),
-                _ => cls.category.to_lowercase(),
+            match &dpi_app {
+                Some(app) => app.to_lowercase(),
+                None => cls.category.to_lowercase(),
             }
         } else {
             "none".to_string()
