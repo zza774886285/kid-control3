@@ -251,6 +251,19 @@ impl Database {
         Ok(())
     }
 
+    /// 回填用：把某分钟的行从 IDLE 提升为 ACTIVE。只改状态、类型和分数，
+    /// 不动流量/域名列；已经是 ACTIVE 或 BLOCKED 的行保持原样。
+    pub fn promote_video_window(&self, ts: &str, mac: &str, activity_type: &str) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let changed = conn.execute(
+            "UPDATE video_windows
+                SET video_status = 'ACTIVE', activity_type = ?1, video_score = 100
+              WHERE ts = ?2 AND mac = ?3 AND video_status NOT IN ('ACTIVE', 'BLOCKED')",
+            params![activity_type, ts, mac],
+        )?;
+        Ok(changed)
+    }
+
     pub fn get_video_windows(&self, mac: &str, date: &str) -> Vec<crate::models::VideoWindow> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(

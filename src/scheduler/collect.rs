@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use chrono::Timelike;
 use tracing::{info, error, debug, warn};
 use tokio::sync::RwLock;
 use crate::ros::RosClient;
@@ -278,6 +279,45 @@ pub async fn run_data_collection(
             tablet.name, mac_upper, result.status, result.bytes_delta, result.conn_count,
             conn_detail.dst_ips.iter().any(|ip| registry_snapshot.is_game_ip(ip)));
     }
+
+    let macs: Vec<String> = tablets.keys().cloned().collect();
+    backfill_recent_minutes(db.as_ref(), &macs);
+}
+
+/// 回填最近几分钟的判定。
+///
+/// 判定跑在 `traffic_minute` 落库之前（晚约 60 秒），那一分钟会先被写成 IDLE，
+/// 事后没有任何步骤回头改它，时间线上就留下空洞。这里用当前 DPI 缓存把最近
+/// 5 分钟补回 ACTIVE：只提升、不降级，BLOCKED 行不动；用量统计走 DPI 区间并集，
+/// 不读这张表，所以不影响限额。
+const BACKFILL_MINUTES: i64 = 5;
+
+fn backfill_recent_minutes(db: &Database, macs: &[String]) {
+    if !crate::detector::dpi_source::available() {
+        return;
+    }
+    let now = chrono::Local::now();
+    for back in 1..=BACKFILL_MINUTES {
+        let Some(minute) = (now - chrono::Duration::minutes(back))
+            .with_second(0)
+            .and_then(|t| t.with_nanosecond(0))
+        else {
+            continue;
+        };
+        let ts = minute.format("%Y-%m-%dT%H:%M:00").to_string();
+        let epoch = minute.timestamp();
+        for mac in macs {
+            let mac_upper = mac.to_uppercase();
+            let Some(app) = crate::detector::dpi_source::active_at(&mac_upper, epoch) else {
+                continue;
+            };
+            match db.promote_video_window(&ts, &mac_upper, &app.to_lowercase()) {
+                Ok(changed) if changed > 0 => info!("回填 {} {} → ACTIVE ({})", ts, mac_upper, app),
+                Ok(_) => {}
+                Err(e) => warn!("回填 {} {} 失败: {}", ts, mac_upper, e),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -377,5 +417,22 @@ mod tests {
         // 解封后没有信号：不应沿用封禁前的活跃状态
         assert_eq!(collect_once(&detector, &db, ts_at(10, 2), vec![], false), "IDLE");
         assert_eq!(db.get_daily_active_minutes(MAC, &today).0, 1);
+    }
+
+    /// 回填只把 IDLE 提升为 ACTIVE：已 ACTIVE 或 BLOCKED 的行不动
+    #[test]
+    fn promote_only_upgrades_idle_rows() {
+        let db = test_db("promote");
+        let ts = "2026-10-31T15:56:00";
+        db.insert_video_window(ts, "2026-10-31", MAC, "192.0.2.10",
+            0, 0, "[]", "[]", 0, "IDLE", "none").unwrap();
+        assert_eq!(db.promote_video_window(ts, MAC, "game_preternatural").unwrap(), 1);
+        // 重复回填不再改动
+        assert_eq!(db.promote_video_window(ts, MAC, "game_preternatural").unwrap(), 0);
+
+        let blocked = "2026-10-31T15:57:00";
+        db.insert_video_window(blocked, "2026-10-31", MAC, "192.0.2.10",
+            0, 0, "[]", "[]", 0, "BLOCKED", "none").unwrap();
+        assert_eq!(db.promote_video_window(blocked, MAC, "game_preternatural").unwrap(), 0);
     }
 }
