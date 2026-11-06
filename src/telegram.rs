@@ -219,38 +219,47 @@ async fn process_callback(
     let request_info = state.db.get_request_by_id(request_id);
 
     let result_text = if action == "approve" {
-        if let Some(ref req) = request_info {
-            // 更新 weekly_quota
-            state.db.update_weekly_quota(req.user_id, &req.request_type);
-            // 审批通过（更新 status + 记录 point_transactions）
-            state.db.approve_request(request_id, "approve", None);
-            let type_label = match req.request_type.as_str() {
-                "tutoring" => "补课",
-                "homework" => "作业",
-                _ => "其他",
-            };
-            format!("✅ 已同意 — {} {}积分", type_label, req.points)
-        } else {
-            state.db.approve_request(request_id, "approve", None);
-            "✅ 已同意".to_string()
+        match state.db.approve_request_atomic(request_id, "approve", None) {
+            Ok(true) => {
+                if let Some(ref req) = request_info {
+                    let type_label = match req.request_type.as_str() {
+                        "tutoring" => "补课",
+                        "homework" => "作业",
+                        _ => "其他",
+                    };
+                    format!("✅ 已同意 — {} {}积分", type_label, req.points)
+                } else {
+                    "✅ 已同意".to_string()
+                }
+            }
+            Ok(false) => "⚠️ 申请不存在或已经处理".to_string(),
+            Err(error) => format!("❌ 审批失败：{}", error),
         }
     } else if action == "reject" {
-        if let Some(ref req) = request_info {
-            state.db.approve_request(request_id, "reject", Some("管理员拒绝"));
-            let type_label = match req.request_type.as_str() {
-                "tutoring" => "补课",
-                "homework" => "作业",
-                _ => "其他",
-            };
-            // 发送拒绝通知给管理员（群组消息已可见）
-            let user = state.db.get_user_by_id(req.user_id);
-            if let Some(u) = user {
-                send_rejection_notification(&u.display_name, &req.request_type, req.points).await;
+        match state.db.approve_request_atomic(request_id, "reject", Some("管理员拒绝")) {
+            Ok(true) => {
+                if let Some(ref req) = request_info {
+                    let type_label = match req.request_type.as_str() {
+                        "tutoring" => "补课",
+                        "homework" => "作业",
+                        _ => "其他",
+                    };
+                    // 发送拒绝通知给管理员（群组消息已可见）
+                    if let Some(user) = state.db.get_user_by_id(req.user_id) {
+                        send_rejection_notification(
+                            &user.display_name,
+                            &req.request_type,
+                            req.points,
+                        )
+                        .await;
+                    }
+                    format!("❌ 已拒绝 — {} {}积分", type_label, req.points)
+                } else {
+                    "❌ 已拒绝".to_string()
+                }
             }
-            format!("❌ 已拒绝 — {} {}积分", type_label, req.points)
-        } else {
-            state.db.approve_request(request_id, "reject", Some("管理员拒绝"));
-            "❌ 已拒绝".to_string()
+            Ok(false) => "⚠️ 申请不存在或已经处理".to_string(),
+            Err(error) => format!("❌ 处理失败：{}", error),
         }
     } else {
         warn!("未知的 callback action: {}", action);

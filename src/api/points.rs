@@ -127,25 +127,16 @@ pub async fn approve_request(
     if req.action != "approve" && req.action != "reject" {
         return Json(json!({ "ok": false, "error": "无效操作" }));
     }
-    // 获取申请详情
-    let request_info = state.db.get_request_by_id(req.request_id);
-    if let Some(ref r) = request_info {
-        if req.action == "approve" {
-            // 更新 weekly_quota
-            state.db.update_weekly_quota(r.user_id, &r.request_type);
-            // 记录积分交易（earn）
-            let balance = state.db.get_user_points_balance(r.user_id);
-            let new_balance = balance + r.points;
-            let conn = state.db.get_conn();
-            let _ = conn.execute(
-                "INSERT INTO point_transactions (user_id, tx_type, points, balance_after, description, request_id, created_at) \
-                 VALUES (?1, 'earn', ?2, ?3, ?4, ?5, datetime('now', '+8 hours'))",
-                rusqlite::params![r.user_id, r.points, new_balance, format!("{} +{}分", r.request_type, r.points), r.id],
-            );
-            drop(conn);
-        }
+    let changed = match state
+        .db
+        .approve_request_atomic(req.request_id, &req.action, req.note.as_deref())
+    {
+        Ok(changed) => changed,
+        Err(error) => return Json(json!({ "ok": false, "error": error })),
+    };
+    if !changed {
+        return Json(json!({ "ok": false, "error": "申请不存在或已经处理" }));
     }
-    state.db.approve_request(req.request_id, &req.action, req.note.as_deref());
     Json(json!({ "ok": true }))
 }
 
@@ -154,9 +145,8 @@ pub async fn exchange_points(
     State(state): State<Arc<KidAppState>>,
     Json(req): Json<ExchangeRequest>,
 ) -> Json<Value> {
-    let balance = state.db.get_user_points_balance(req.user_id);
-    if balance < req.points {
-        return Json(json!({ "ok": false, "error": "积分不足" }));
+    if req.points <= 0 {
+        return Json(json!({ "ok": false, "error": "兑换积分必须大于 0" }));
     }
 
     // 1积分 = 1分钟
@@ -171,25 +161,26 @@ pub async fn exchange_points(
         let tablets = state.config.get_tablets();
         if let Some(tablet) = tablets.get(tablet_key) {
             let mac = tablet.mac.clone();
-            let current = state.config.get_current_limit(&mac.to_uppercase());
-            let new_val = current + minutes * 60;
             let key = format!("LIMIT_OVERRIDE_{}_{}", mac.to_uppercase(),
                 chrono::Local::now().format("%Y-%m-%d"));
-            let _ = state.config.set(&key, &new_val.to_string());
-
-            // 扣除积分（record_exchange 内部处理余额检查和记录）
-            state.db.record_exchange(req.user_id, req.points, minutes, &mac);
+            let new_limit = match state.db.exchange_points_atomic(
+                req.user_id, minutes, &mac, &key,
+            ) {
+                Ok(value) => value,
+                Err(error) => return Json(json!({ "ok": false, "error": error })),
+            };
 
             // 异步发送 Telegram 兑换通知
             let child_name = user.display_name.clone();
             tokio::spawn(async move {
-                crate::telegram::send_exchange_notification(&child_name, req.points, minutes).await;
+                crate::telegram::send_exchange_notification(&child_name, minutes, minutes).await;
             });
 
             return Json(json!({
                 "ok": true,
                 "message": format!("兑换成功！获得 {} 分钟平板时间", minutes),
                 "minutes": minutes,
+                "limit_sec": new_limit,
             }));
         }
     }

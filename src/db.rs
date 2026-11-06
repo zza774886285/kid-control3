@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use anyhow::Result;
 use tracing::info;
 
@@ -497,6 +497,181 @@ impl Database {
         ).unwrap();
     }
 
+    /// 原子兑换：余额、今日限额、交易记录和兑换记录一次提交。
+    pub fn exchange_points_atomic(
+        &self,
+        user_id: i64,
+        points: i64,
+        mac: &str,
+        override_key: &str,
+    ) -> Result<i64, String> {
+        if points <= 0 {
+            return Err("兑换积分必须大于 0".to_string());
+        }
+        let added_seconds = points
+            .checked_mul(60)
+            .ok_or_else(|| "兑换时长超出范围".to_string())?;
+        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+        let balance: i64 = tx
+            .query_row(
+                "SELECT COALESCE(SUM(CASE WHEN tx_type='earn' THEN points ELSE -points END), 0)
+                 FROM point_transactions WHERE user_id=?1",
+                params![user_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if balance < points {
+            return Err(format!("积分不足，当前 {} 分", balance));
+        }
+
+        let override_value: Option<String> = tx
+            .query_row(
+                "SELECT value FROM config WHERE key=?1",
+                params![override_key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let daily_limit: i64 = tx
+            .query_row(
+                "SELECT value FROM config WHERE key='DAILY_LIMIT'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(60)
+            .max(0)
+            .checked_mul(60)
+            .ok_or_else(|| "每日限额超出范围".to_string())?;
+        let current_limit = override_value
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|value| *value >= 0)
+            .unwrap_or(daily_limit);
+        let new_limit = current_limit
+            .checked_add(added_seconds)
+            .ok_or_else(|| "设备限额超出范围".to_string())?;
+        let new_balance = balance - points;
+
+        tx.execute(
+            "INSERT INTO config(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            params![override_key, new_limit.to_string()],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO point_transactions
+                (user_id, tx_type, points, balance_after, description, created_at)
+             VALUES(?1, 'exchange', ?2, ?3, ?4, datetime('now', '+8 hours'))",
+            params![user_id, points, new_balance, format!("兑换{}分钟平板时间", points)],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute(
+            "INSERT INTO point_exchanges
+                (user_id, points_spent, minutes_granted, tablet_mac, status, created_at)
+             VALUES(?1, ?2, ?3, ?4, 'success', datetime('now', '+8 hours'))",
+            params![user_id, points, points, mac],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(new_limit)
+    }
+
+    /// 原子审批：只有 pending 申请能处理一次，积分与周额度一起提交。
+    pub fn approve_request_atomic(
+        &self,
+        request_id: i64,
+        action: &str,
+        note: Option<&str>,
+    ) -> Result<bool, String> {
+        if action != "approve" && action != "reject" {
+            return Err("无效的审批操作".to_string());
+        }
+        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let request: Option<(i64, String, i64, String)> = tx
+            .query_row(
+                "SELECT user_id, request_type, points, status
+                 FROM point_requests WHERE id=?1",
+                params![request_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let Some((user_id, request_type, points, current_status)) = request else {
+            return Ok(false);
+        };
+        if current_status != "pending" {
+            return Ok(false);
+        }
+
+        if action == "approve" {
+            if points <= 0 {
+                return Err("申请积分必须大于 0".to_string());
+            }
+            let balance: i64 = tx
+                .query_row(
+                    "SELECT COALESCE(SUM(CASE WHEN tx_type='earn' THEN points ELSE -points END), 0)
+                     FROM point_transactions WHERE user_id=?1",
+                    params![user_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            let new_balance = balance
+                .checked_add(points)
+                .ok_or_else(|| "积分余额超出范围".to_string())?;
+            tx.execute(
+                "INSERT INTO point_transactions
+                    (user_id, tx_type, points, balance_after, description, request_id, created_at)
+                 VALUES(?1, 'earn', ?2, ?3, ?4, ?5, datetime('now', '+8 hours'))",
+                params![user_id, points, new_balance, format!("{} +{}分", request_type, points), request_id],
+            )
+            .map_err(|e| e.to_string())?;
+
+            let (count_col, max_col, used_col) = match request_type.as_str() {
+                "tutoring" => ("tutoring_count", "tutoring_max", "tutoring_used"),
+                "homework" => ("homework_count", "homework_max", "homework_used"),
+                "other" => ("other_count", "other_max", "other_used"),
+                _ => return Err("申请类型无效".to_string()),
+            };
+            let week_start = Self::get_week_start();
+            tx.execute(
+                "INSERT INTO weekly_quota(user_id, week_start) VALUES(?1, ?2)
+                 ON CONFLICT(user_id, week_start) DO NOTHING",
+                params![user_id, week_start],
+            )
+            .map_err(|e| e.to_string())?;
+            tx.execute(
+                &format!(
+                    "UPDATE weekly_quota SET
+                        {count_col}=MIN(COALESCE({count_col}, 0) + 1, COALESCE({max_col}, 1)),
+                        {used_col}=1
+                     WHERE user_id=?1 AND week_start=?2"
+                ),
+                params![user_id, week_start],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
+        let status = if action == "approve" { "approved" } else { "rejected" };
+        let changed = tx
+            .execute(
+                "UPDATE point_requests
+                 SET status=?1, admin_note=?2, processed_at=datetime('now', '+8 hours')
+                 WHERE id=?3 AND status='pending'",
+                params![status, note, request_id],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed != 1 {
+            return Ok(false);
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
     pub fn get_point_history(&self, user_id: i64) -> Vec<crate::models::PointTransaction> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -741,5 +916,145 @@ impl Database {
                 tablet_key: row.get(4)?,
             }),
         ).ok()
+    }
+}
+
+#[cfg(test)]
+mod point_tests {
+    use super::Database;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    const MAC: &str = "AA:BB:CC:DD:EE:01";
+
+    fn test_db(name: &str) -> (Database, String) {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("读取系统时间")
+            .as_nanos();
+        let path = std::env::temp_dir()
+            .join(format!("kc3-db-{}-{}-{}.sqlite", name, std::process::id(), nonce));
+        let path_str = path.to_string_lossy().to_string();
+        let db = Database::new(&path_str).expect("创建测试数据库");
+        (db, path_str)
+    }
+
+    fn cleanup(path: &str) {
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{}", path, suffix));
+        }
+    }
+
+    fn add_user_with_points(db: &Database, username: &str, points: i64) -> i64 {
+        let conn = db.get_conn();
+        conn.execute(
+            "INSERT INTO users(username, display_name, role) VALUES(?1, ?2, 'child')",
+            rusqlite::params![username, username],
+        )
+        .expect("插入测试用户");
+        let user_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO point_transactions
+                (user_id, tx_type, points, balance_after, description)
+             VALUES(?1, 'earn', ?2, ?2, '测试初始积分')",
+            rusqlite::params![user_id, points],
+        )
+        .expect("插入测试积分");
+        user_id
+    }
+
+    #[test]
+    fn exchange_is_atomic_and_updates_limit() {
+        let (db, path) = test_db("exchange");
+        let user_id = add_user_with_points(&db, "exchange-user", 100);
+        let key = "LIMIT_OVERRIDE_AA:BB:CC:DD:EE:01_2099-01-01";
+
+        let new_limit = db
+            .exchange_points_atomic(user_id, 30, MAC, key)
+            .expect("兑换应成功");
+
+        assert_eq!(new_limit, 5_400);
+        assert_eq!(db.get_user_points_balance(user_id), 70);
+        let conn = db.get_conn();
+        let override_value: String = conn
+            .query_row("SELECT value FROM config WHERE key=?1", [key], |row| row.get(0))
+            .expect("读取限额");
+        let exchange_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM point_exchanges WHERE user_id=?1",
+                [user_id],
+                |row| row.get(0),
+            )
+            .expect("读取兑换记录");
+        assert_eq!(override_value, "5400");
+        assert_eq!(exchange_count, 1);
+        drop(conn);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn exchange_rejects_invalid_or_insufficient_points_without_writes() {
+        let (db, path) = test_db("exchange-reject");
+        let user_id = add_user_with_points(&db, "reject-user", 10);
+        let key = "LIMIT_OVERRIDE_AA:BB:CC:DD:EE:01_2099-01-02";
+
+        assert!(db.exchange_points_atomic(user_id, 0, MAC, key).is_err());
+        assert!(db.exchange_points_atomic(user_id, -1, MAC, key).is_err());
+        assert!(db.exchange_points_atomic(user_id, 11, MAC, key).is_err());
+        assert_eq!(db.get_user_points_balance(user_id), 10);
+
+        let conn = db.get_conn();
+        let exchange_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM point_exchanges WHERE user_id=?1",
+                [user_id],
+                |row| row.get(0),
+            )
+            .expect("读取兑换记录");
+        let config_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM config WHERE key=?1", [key], |row| row.get(0))
+            .expect("读取限额记录");
+        assert_eq!(exchange_count, 0);
+        assert_eq!(config_count, 0);
+        drop(conn);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn approval_is_idempotent_and_records_once() {
+        let (db, path) = test_db("approval");
+        let user_id = add_user_with_points(&db, "approval-user", 0);
+        let conn = db.get_conn();
+        conn.execute(
+            "INSERT INTO point_requests(user_id, request_type, points, status)
+             VALUES(?1, 'homework', 30, 'pending')",
+            [user_id],
+        )
+        .expect("插入测试申请");
+        let request_id = conn.last_insert_rowid();
+        drop(conn);
+
+        assert_eq!(db.approve_request_atomic(request_id, "approve", None), Ok(true));
+        assert_eq!(db.approve_request_atomic(request_id, "approve", None), Ok(false));
+        assert_eq!(db.get_user_points_balance(user_id), 30);
+
+        let conn = db.get_conn();
+        let tx_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM point_transactions WHERE request_id=?1",
+                [request_id],
+                |row| row.get(0),
+            )
+            .expect("读取审批交易");
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM point_requests WHERE id=?1",
+                [request_id],
+                |row| row.get(0),
+            )
+            .expect("读取申请状态");
+        assert_eq!(tx_count, 1);
+        assert_eq!(status, "approved");
+        drop(conn);
+        cleanup(&path);
     }
 }

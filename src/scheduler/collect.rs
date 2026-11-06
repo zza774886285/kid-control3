@@ -60,33 +60,61 @@ async fn persist_block_state(config: &ConfigManager, mac_upper: &str) {
 }
 
 /// 统一封禁：IPv4 address-list + IPv6 filter 规则（带状态缓存）
-async fn block(ros: &RosClient, ip: &str, ipv6_comment: &str, list_name: &str, cache_key: &str) {
-    let mut cache = FW_STATE.write().await;
+async fn block(
+    ros: &RosClient,
+    ip: &str,
+    ipv6_comment: &str,
+    list_name: &str,
+    cache_key: &str,
+) -> bool {
+    let cache = FW_STATE.read().await;
     if cache.get(cache_key) == Some(&true) {
         debug!("  已封禁，跳过: {}", cache_key);
-        return;
+        return true;
     }
     drop(cache);
-    fw::block_ip(ros, ip, list_name).await;
-    if !ipv6_comment.is_empty() {
-        ipv6::block_ipv6(ros, ipv6_comment).await;
+
+    let ipv4_ok = fw::block_ip(ros, ip, list_name).await;
+    let ipv6_ok = if ipv6_comment.is_empty() {
+        true
+    } else {
+        ipv6::block_ipv6(ros, ipv6_comment).await
+    };
+    if !ipv4_ok || !ipv6_ok {
+        warn!("封禁操作未完成 {} (ipv4_ok={}, ipv6_ok={})", cache_key, ipv4_ok, ipv6_ok);
+        return false;
     }
     FW_STATE.write().await.insert(cache_key.to_string(), true);
+    true
 }
 
 /// 统一解封：IPv4 address-list + IPv6 filter 规则（带状态缓存）
-async fn unblock(ros: &RosClient, ip: &str, ipv6_comment: &str, list_name: &str, cache_key: &str) {
-    let mut cache = FW_STATE.write().await;
+async fn unblock(
+    ros: &RosClient,
+    ip: &str,
+    ipv6_comment: &str,
+    list_name: &str,
+    cache_key: &str,
+) -> bool {
+    let cache = FW_STATE.read().await;
     if cache.get(cache_key) == Some(&false) {
         debug!("  已解封，跳过: {}", cache_key);
-        return;
+        return true;
     }
     drop(cache);
-    fw::unblock_ip(ros, ip, list_name).await;
-    if !ipv6_comment.is_empty() {
-        ipv6::unblock_ipv6(ros, ipv6_comment).await;
+
+    let ipv4_ok = fw::unblock_ip(ros, ip, list_name).await;
+    let ipv6_ok = if ipv6_comment.is_empty() {
+        true
+    } else {
+        ipv6::unblock_ipv6(ros, ipv6_comment).await
+    };
+    if !ipv4_ok || !ipv6_ok {
+        warn!("解封操作未完成 {} (ipv4_ok={}, ipv6_ok={})", cache_key, ipv4_ok, ipv6_ok);
+        return false;
     }
     FW_STATE.write().await.insert(cache_key.to_string(), false);
+    true
 }
 
 /// 按当前配置对单台设备判定并立即应用封禁/解封，返回原因
@@ -110,8 +138,9 @@ pub async fn apply_device(
         crate::scheduler::usage::effective_minutes(db, config, mac_upper, &today);
     if paused {
         info!("  {}: 大人模式 → 放行", name);
-        unblock(ros, ip, ipv6_comment, block_list, mac_upper).await;
-        persist_block_state(config, mac_upper).await;
+        if unblock(ros, ip, ipv6_comment, block_list, mac_upper).await {
+            persist_block_state(config, mac_upper).await;
+        }
         return "大人模式 → 放行";
     }
 
@@ -120,8 +149,9 @@ pub async fn apply_device(
         .map(|v| v == "true");
     if switch_enabled == Some(false) {
         info!("  {}: 开关关闭 → 封禁", name);
-        block(ros, ip, ipv6_comment, block_list, mac_upper).await;
-        persist_block_state(config, mac_upper).await;
+        if block(ros, ip, ipv6_comment, block_list, mac_upper).await {
+            persist_block_state(config, mac_upper).await;
+        }
         return "开关关闭 → 封禁";
     }
 
@@ -130,15 +160,17 @@ pub async fn apply_device(
         let usage_sec = active_min * 60;
         if usage_sec >= limit_sec {
             info!("  {}: 超限 ({}s >= {}s) → 封禁", name, usage_sec, limit_sec);
-            block(ros, ip, ipv6_comment, block_list, mac_upper).await;
-            persist_block_state(config, mac_upper).await;
+            if block(ros, ip, ipv6_comment, block_list, mac_upper).await {
+                persist_block_state(config, mac_upper).await;
+            }
             return "超限 → 封禁";
         }
     }
 
     info!("  {}: 放行", name);
-    unblock(ros, ip, ipv6_comment, block_list, mac_upper).await;
-    persist_block_state(config, mac_upper).await;
+    if unblock(ros, ip, ipv6_comment, block_list, mac_upper).await {
+        persist_block_state(config, mac_upper).await;
+    }
     "放行"
 }
 
