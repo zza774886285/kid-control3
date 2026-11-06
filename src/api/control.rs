@@ -37,7 +37,7 @@ pub async fn kid_adjust(
     let key = format!("LIMIT_OVERRIDE_{}_{}", mac_upper, today);
 
     let current = state.config.get_current_limit(&mac_upper);
-    let usage_sec = state.db.get_daily_active_minutes(&mac_upper, &today).0 * 60;
+    let usage_sec = crate::scheduler::usage::effective_minutes(&state.db, &state.config, &mac_upper, &today).0 * 60;
     let new_val = match req.set_remaining_min {
         Some(mins) => (usage_sec + mins.max(0) * 60).max(0),
         None => (current.max(usage_sec) + req.delta).max(0),
@@ -107,7 +107,8 @@ pub async fn get_control_status(State(state): State<Arc<AppState>>) -> Json<Valu
             .map(|v| v == "true").unwrap_or(false);
         let switch_enabled = state.config.get(&format!("SWITCH_{}", mac_upper))
             .map(|v| v == "true");
-        let (active_min, _, _) = state.db.get_daily_active_minutes(&mac_upper, &today);
+        let (active_min, _, _) =
+            crate::scheduler::usage::effective_minutes(&state.db, &state.config, &mac_upper, &today);
         let usage_sec = active_min * 60;
         let limit_sec = state.config.get_current_limit(&mac_upper);
         let block_list = state.config.get("BLOCK_LIST").unwrap_or_else(|| "block-tablet".to_string());

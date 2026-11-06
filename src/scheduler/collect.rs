@@ -103,6 +103,11 @@ pub async fn apply_device(
     let paused = config.get(&format!("PAUSE_{}", mac_upper))
         .map(|v| v == "true")
         .unwrap_or(false);
+    // 统一在入口结算/冻结用量：暂停时记基线并冻结，退出暂停时把暂停期间增量扣掉。
+    // 放在最前面是为了让「开关关闭」「超限」这些提前 return 的分支也能完成结算。
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let (active_min, _, _) =
+        crate::scheduler::usage::effective_minutes(db, config, mac_upper, &today);
     if paused {
         info!("  {}: 大人模式 → 放行", name);
         unblock(ros, ip, ipv6_comment, block_list, mac_upper).await;
@@ -122,8 +127,6 @@ pub async fn apply_device(
 
     let limit_sec = config.get_current_limit(mac_upper);
     if limit_sec >= 0 {
-        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let (active_min, _, _) = db.get_daily_active_minutes(mac_upper, &today);
         let usage_sec = active_min * 60;
         if usage_sec >= limit_sec {
             info!("  {}: 超限 ({}s >= {}s) → 封禁", name, usage_sec, limit_sec);

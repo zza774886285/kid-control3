@@ -13,7 +13,8 @@ pub async fn collect_api_data(state: &AppState) -> Result<Value, String> {
         let mac_upper = mac.to_uppercase();
         let ip = if tablet.ip.is_empty() { mac_ip.get(&mac_upper).cloned().unwrap_or_default() } else { tablet.ip.clone() };
         let online = !ip.is_empty();
-        let (active_min, video_min, game_min) = state.db.get_daily_active_minutes(&mac_upper, &today);
+        let (active_min, video_min, game_min) =
+            crate::scheduler::usage::effective_minutes(&state.db, &state.config, &mac_upper, &today);
         let limit_sec = state.config.get_current_limit(&mac_upper);
         let usage_sec = active_min * 60;
 
