@@ -40,14 +40,14 @@ static CACHE: Lazy<RwLock<Cache>> = Lazy::new(|| {
     })
 });
 
-/// 同步读缓存。None 表示 DPI 数据不可用，调用方应回退到 video_windows。
+/// 同步读缓存。None 表示 DPI 缓存不可用；缓存新鲜但该设备无匹配连接时，今日用量为 0。
 pub fn cached(mac: &str) -> Option<(i64, i64, i64)> {
     let c = CACHE.read().ok()?;
     let ts = c.ts?;
     if ts.elapsed() > Duration::from_secs(STALE_SEC) {
         return None;
     }
-    c.data.get(&mac.to_uppercase()).copied()
+    Some(cached_usage(&c.data, mac))
 }
 
 /// DPI 数据是否可用（缓存新鲜）。false 时调用方应回退到原来的 DNS 轮询逻辑。
@@ -132,6 +132,51 @@ fn union_seconds(mut iv: Vec<(i64, i64)>) -> i64 {
         }
     }
     total + (cur_e - cur_s)
+}
+
+/// 只过滤单条、短于 60 秒且没有相邻目标 App 连接的孤立记录。
+/// 由多条连接组成的会话不滤，且不看流量字节。
+fn filter_isolated_short_intervals(
+    iv: Vec<(i64, i64, String)>,
+    gap: i64,
+) -> Vec<(i64, i64, String)> {
+    if iv.is_empty() {
+        return Vec::new();
+    }
+
+    let mut sorted = iv;
+    sorted.sort_unstable();
+    let mut kept = Vec::with_capacity(sorted.len());
+    let mut session: Vec<(i64, i64, String)> = Vec::new();
+    let mut session_end = i64::MIN;
+
+    for interval @ (s, e, _) in sorted {
+        if !session.is_empty() && s > session_end + gap {
+            if session.len() > 1 || session[0].1 - session[0].0 >= 60 {
+                kept.append(&mut session);
+            } else {
+                session.clear();
+            }
+            session_end = e;
+        } else {
+            session_end = session_end.max(e);
+        }
+        session.push(interval);
+    }
+
+    if session.len() > 1 || session[0].1 - session[0].0 >= 60 {
+        kept.extend(session);
+    }
+    kept
+}
+
+fn cached_usage(data: &HashMap<String, (i64, i64, i64)>, mac: &str) -> (i64, i64, i64) {
+    data.get(&mac.to_uppercase()).copied().unwrap_or((0, 0, 0))
+}
+
+/// 保留原有单条短连接至少计 60 秒的口径，但先过滤孤立零星会话。
+fn credit_minimum_connection_minute(iv: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    iv.into_iter().map(|(s, e)| (s, e.max(s + 60))).collect()
 }
 
 /// 合并重叠区间，并且把间隔 <= gap 秒的相邻区间也连起来。
@@ -266,8 +311,7 @@ async fn refresh(
     qb.push(")");
     let rows = qb.build().fetch_all(pool).await?;
 
-    let mut per_host: HashMap<String, (Vec<(i64, i64)>, Vec<(i64, i64)>, Vec<(i64, i64)>)> =
-        HashMap::new();
+    let mut per_host: HashMap<String, Vec<(i64, i64, String)>> = HashMap::new();
 
     for row in rows {
         let host: String = row.try_get("host")?;
@@ -280,19 +324,11 @@ async fn refresh(
         if !is_video && !is_game {
             continue;
         }
-        // 与 DPI 面板口径一致：单条连接至少按 60 秒计
-        let e = e.max(s + 60);
-        let mac_key = host.to_uppercase();
-        let entry = per_host
-            .entry(mac_key)
-            .or_insert_with(|| (Vec::new(), Vec::new(), Vec::new()));
-        entry.0.push((s, e)); // 全部娱乐
-        if is_video {
-            entry.1.push((s, e));
-        }
-        if is_game {
-            entry.2.push((s, e));
-        }
+        // 先保留真实连接时长；通过短会话过滤后再沿用至少计 60 秒的旧口径。
+        per_host
+            .entry(host.to_uppercase())
+            .or_default()
+            .push((s, e.max(s), app));
     }
 
     // ---- 活动判定数据：traffic_minute 最近 15 分钟的目标 App 分钟行 ----
@@ -320,11 +356,29 @@ async fn refresh(
     }
 
     let mut data = HashMap::new();
-    for (mac, (all, video, game)) in per_host {
-        // 先按 gap 合并断档，再算总时长
-        let active = secs_to_min(union_seconds(merge_with_gap(all, gap)));
-        let v = secs_to_min(union_seconds(merge_with_gap(video, gap)));
-        let g = secs_to_min(union_seconds(merge_with_gap(game, gap)));
+    for (mac, all) in per_host {
+        // 设备不同目标 App 之间也保持连续性；小流量但持续的连接仍按时长计，不看字节数。
+        let qualified = filter_isolated_short_intervals(all, gap);
+        let active_intervals =
+            credit_minimum_connection_minute(qualified.iter().map(|(s, e, _)| (*s, *e)).collect());
+        let video_intervals = credit_minimum_connection_minute(
+            qualified
+                .iter()
+                .filter(|(_, _, app)| video_apps.contains(app))
+                .map(|(s, e, _)| (*s, *e))
+                .collect(),
+        );
+        let game_intervals = credit_minimum_connection_minute(
+            qualified
+                .iter()
+                .filter(|(_, _, app)| game_apps.contains(app))
+                .map(|(s, e, _)| (*s, *e))
+                .collect(),
+        );
+        // 通过门槛后，原有断档补算与区间并集逻辑保持不变。
+        let active = secs_to_min(union_seconds(merge_with_gap(active_intervals, gap)));
+        let v = secs_to_min(union_seconds(merge_with_gap(video_intervals, gap)));
+        let g = secs_to_min(union_seconds(merge_with_gap(game_intervals, gap)));
         if active > 0 {
             data.insert(mac, (active, v, g));
         }
@@ -376,6 +430,55 @@ mod tests {
         let merged = merge_with_gap(iv, 120);
         assert_eq!(merged.len(), 1);
         assert_eq!(union_seconds(merged), 180);
+    }
+
+    #[test]
+    fn short_isolated_session_is_removed() {
+        let filtered = filter_isolated_short_intervals(vec![(0, 10, "xiaohongshu".into())], 300);
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn continuous_session_uses_real_time_to_qualify_then_keeps_gap_credit() {
+        let intervals = vec![
+            (0, 30, "xiaohongshu".into()),
+            (120, 150, "xiaohongshu".into()),
+        ];
+        let filtered = filter_isolated_short_intervals(intervals.clone(), 300);
+        assert_eq!(filtered, intervals);
+        let credited =
+            credit_minimum_connection_minute(filtered.iter().map(|(s, e, _)| (*s, *e)).collect());
+        assert_eq!(union_seconds(merge_with_gap(credited, 300)), 180);
+    }
+
+    #[test]
+    fn multiple_short_connections_across_apps_are_kept() {
+        let intervals = vec![(0, 10, "xiaohongshu".into()), (200, 230, "game_egg".into())];
+        assert_eq!(
+            filter_isolated_short_intervals(intervals.clone(), 300),
+            intervals
+        );
+    }
+
+    #[test]
+    fn low_volume_is_not_part_of_session_filter() {
+        // 过滤器只收到时间区间，不读取流量字节；低流量的持续使用仍通过。
+        let intervals = vec![
+            (0, 35, "xiaohongshu".into()),
+            (40, 65, "xiaohongshu".into()),
+        ];
+        assert_eq!(
+            filter_isolated_short_intervals(intervals.clone(), 300),
+            intervals
+        );
+    }
+
+    #[test]
+    fn fresh_cache_without_matching_device_is_zero_not_fallback() {
+        assert_eq!(
+            cached_usage(&HashMap::new(), "AA:BB:CC:DD:EE:FF"),
+            (0, 0, 0)
+        );
     }
 
     #[test]
