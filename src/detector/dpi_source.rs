@@ -21,6 +21,14 @@ const STALE_SEC: u64 = 300;
 /// 刷新间隔。取 30 秒而不是 60：access_log 有落库延迟，
 /// 刷新快一点能让活动判定用上更新的数据，减少时间线抖动。
 const REFRESH_SEC: u64 = 30;
+/// DPI 分钟表最长允许滞后；超过则不根据静默窗口过滤，避免采集停滞时少算。
+const TRAFFIC_MINUTE_MAX_LAG_SEC: i64 = 180;
+/// 只把非常短、非常小且被完整静默窗口包围的目标 App 会话视为后台微流量。
+const MICRO_SESSION_MAX_SPAN_SEC: i64 = 5;
+const MICRO_SESSION_MAX_BYTES: i64 = 10 * 1024;
+const QUIET_WINDOW_MINUTES: i64 = 5;
+
+type AppInterval = (i64, i64, String, i64); // start, end, app_id, total_bytes
 
 struct Cache {
     /// mac(大写) -> (active_min, video_min, game_min)
@@ -134,39 +142,71 @@ fn union_seconds(mut iv: Vec<(i64, i64)>) -> i64 {
     total + (cur_e - cur_s)
 }
 
-/// 只过滤单条、短于 60 秒且没有相邻目标 App 连接的孤立记录。
-/// 由多条连接组成的会话不滤，且不看流量字节。
-fn filter_isolated_short_intervals(
-    iv: Vec<(i64, i64, String)>,
+/// 判断 DPI 分钟表的最新数据是否足够新鲜，避免采集停滞时根据“静默”误删用量。
+fn traffic_data_is_fresh(now_ts: i64, latest_ts: Option<i64>) -> bool {
+    latest_ts.is_some_and(|ts| ts <= now_ts && now_ts - ts <= TRAFFIC_MINUTE_MAX_LAG_SEC)
+}
+
+/// 过滤极短微会话，并要求前后五个完整分钟没有任何计时 App 流量。
+/// 候选会话的后置静默窗口尚未完整时先暂缓计入；DPI 数据过期或查询失败则放行。
+fn filter_isolated_micro_sessions(
+    intervals: Vec<AppInterval>,
     gap: i64,
-) -> Vec<(i64, i64, String)> {
-    if iv.is_empty() {
+    now_ts: i64,
+    latest_traffic_ts: Option<i64>,
+    quiet_minutes: Option<&HashSet<i64>>,
+) -> Vec<AppInterval> {
+    if intervals.is_empty() {
         return Vec::new();
     }
 
-    let mut sorted = iv;
-    sorted.sort_unstable();
+    let mut sorted = intervals;
+    sorted.sort_unstable_by_key(|(start, _, _, _)| *start);
+    let Some(quiet_minutes) = quiet_minutes.filter(|_| traffic_data_is_fresh(now_ts, latest_traffic_ts)) else {
+        // 分钟数据不可用/过旧：不能证明前后安静，按现有计费口径放行。
+        return sorted;
+    };
+
     let mut kept = Vec::with_capacity(sorted.len());
-    let mut session: Vec<(i64, i64, String)> = Vec::new();
+    let mut session: Vec<AppInterval> = Vec::new();
     let mut session_end = i64::MIN;
 
-    for interval @ (s, e, _) in sorted {
-        if !session.is_empty() && s > session_end + gap {
-            if session.len() > 1 || session[0].1 - session[0].0 >= 60 {
-                kept.append(&mut session);
-            } else {
-                session.clear();
-            }
-            session_end = e;
+    let mut finish_session = |session: &mut Vec<AppInterval>, kept: &mut Vec<AppInterval>| {
+        if session.is_empty() {
+            return;
+        }
+        let start = session.iter().map(|(s, _, _, _)| *s).min().unwrap_or(0);
+        let end = session.iter().map(|(_, e, _, _)| *e).max().unwrap_or(start);
+        let bytes = session
+            .iter()
+            .map(|(_, _, _, b)| *b)
+            .fold(0i64, i64::saturating_add);
+        let start_minute = start.div_euclid(60) * 60;
+        let end_minute = end.div_euclid(60) * 60;
+        let quiet_before = (1..=QUIET_WINDOW_MINUTES)
+            .all(|n| !quiet_minutes.contains(&(start_minute - n * 60)));
+        let is_micro = end - start <= MICRO_SESSION_MAX_SPAN_SEC && bytes <= MICRO_SESSION_MAX_BYTES;
+        let has_post_window_traffic = (1..=QUIET_WINDOW_MINUTES)
+            .any(|n| quiet_minutes.contains(&(end_minute + n * 60)));
+
+        if !(is_micro && quiet_before && !has_post_window_traffic) {
+            // 只有「极短极小 + 前面静默 + 后面五分钟无目标流量」才不算；其余照常计时。
+            // 后置窗口尚未采满时同样先不计，满窗后仍安静则维持排除。
+            kept.append(session);
+        }
+        session.clear();
+    };
+
+    for interval @ (start, end, _, _) in sorted {
+        if !session.is_empty() && start > session_end.saturating_add(gap) {
+            finish_session(&mut session, &mut kept);
+            session_end = end;
         } else {
-            session_end = session_end.max(e);
+            session_end = session_end.max(end);
         }
         session.push(interval);
     }
-
-    if session.len() > 1 || session[0].1 - session[0].0 >= 60 {
-        kept.extend(session);
-    }
+    finish_session(&mut session, &mut kept);
     kept
 }
 
@@ -296,7 +336,7 @@ async fn refresh(
 
     // 一次把今天所有娱乐类 App 的连接捞出来，按 host 分组算并集
     let mut qb = sqlx::QueryBuilder::new(
-        "SELECT host, app, ts_start, ts_end FROM access_log WHERE ts_start >= ",
+        "SELECT host, app, ts_start, ts_end, up, down FROM access_log WHERE ts_start >= ",
     );
     qb.push_bind(day_start);
     qb.push(" AND ts_start <= ");
@@ -311,68 +351,84 @@ async fn refresh(
     qb.push(")");
     let rows = qb.build().fetch_all(pool).await?;
 
-    let mut per_host: HashMap<String, Vec<(i64, i64, String)>> = HashMap::new();
+    let mut per_host: HashMap<String, Vec<AppInterval>> = HashMap::new();
 
     for row in rows {
         let host: String = row.try_get("host")?;
         let app: String = row.try_get("app")?;
         let s: i64 = row.try_get("ts_start")?;
         let e: i64 = row.try_get("ts_end")?;
+        let up: i64 = row.try_get("up")?;
+        let down: i64 = row.try_get("down")?;
 
         let is_video = video_apps.contains(&app);
         let is_game = game_apps.contains(&app);
         if !is_video && !is_game {
             continue;
         }
-        // 先保留真实连接时长；通过短会话过滤后再沿用至少计 60 秒的旧口径。
+        // 保留实际字节，供锁屏微会话过滤；用量仍按现有区间并集计时。
         per_host
             .entry(host.to_uppercase())
             .or_default()
-            .push((s, e.max(s), app));
+            .push((s, e.max(s), app, up.saturating_add(down)));
     }
 
-    // ---- 活动判定数据：traffic_minute 最近 15 分钟的目标 App 分钟行 ----
-    // 不用 access_log：它要等连接结束才落库，长连接进行中查不到（会整段判 IDLE）
-    let mut minutes: HashMap<String, Vec<(i64, String)>> = HashMap::new();
-    let mut qb2 = sqlx::QueryBuilder::new("SELECT host, app, ts FROM traffic_minute WHERE ts >= ");
-    qb2.push_bind(now_ts - 900);
+    // 读取目标 App 分钟桶作为前后静默证据。只有覆盖到候选区间两侧且数据新鲜时才启用过滤。
+    let quiet_query_start = day_start - QUIET_WINDOW_MINUTES * 60;
+    let mut qb2 = sqlx::QueryBuilder::new(
+        "SELECT host, app, ts FROM traffic_minute WHERE ts >= ",
+    );
+    qb2.push_bind(quiet_query_start);
+    qb2.push(" AND ts <= ");
+    qb2.push_bind(now_ts);
     qb2.push(" AND app IN (");
     {
         let mut sep = qb2.separated(", ");
-        for a in video_apps.iter().chain(game_apps.iter()) {
-            sep.push_bind(a.clone());
+        for app in video_apps.iter().chain(game_apps.iter()) {
+            sep.push_bind(app.clone());
         }
     }
     qb2.push(")");
-    if let Ok(mrows) = qb2.build().fetch_all(pool).await {
-        for row in mrows {
-            let h: String = row.try_get("host").unwrap_or_default();
-            let a: String = row.try_get("app").unwrap_or_default();
-            let t: i64 = row.try_get("ts").unwrap_or(0);
-            if !h.is_empty() && !a.is_empty() && t > 0 {
-                minutes.entry(h.to_uppercase()).or_default().push((t, a));
-            }
+    let minute_rows = qb2.build().fetch_all(pool).await?;
+    let mut quiet_minutes: HashMap<String, HashSet<i64>> = HashMap::new();
+    let mut minutes: HashMap<String, Vec<(i64, String)>> = HashMap::new();
+    for row in minute_rows {
+        let host: String = row.try_get::<String, _>("host")?.to_uppercase();
+        let app: String = row.try_get("app")?;
+        let ts: i64 = row.try_get("ts")?;
+        if host.is_empty() || app.is_empty() || ts <= 0 {
+            continue;
         }
+        let minute = ts.div_euclid(60) * 60;
+        quiet_minutes.entry(host.clone()).or_default().insert(minute);
+        minutes.entry(host).or_default().push((minute, app));
     }
+
+    let latest_ts: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(ts), 0) FROM traffic_minute")
+        .fetch_one(pool)
+        .await?;
+    let latest_traffic_ts = (latest_ts > 0).then_some(latest_ts);
 
     let mut data = HashMap::new();
     for (mac, all) in per_host {
         // 设备不同目标 App 之间也保持连续性；小流量但持续的连接仍按时长计，不看字节数。
-        let qualified = filter_isolated_short_intervals(all, gap);
-        let active_intervals =
-            credit_minimum_connection_minute(qualified.iter().map(|(s, e, _)| (*s, *e)).collect());
+        let quiet = quiet_minutes.get(&mac);
+        let qualified = filter_isolated_micro_sessions(all, gap, now_ts, latest_traffic_ts, quiet);
+        let active_intervals = credit_minimum_connection_minute(
+            qualified.iter().map(|(s, e, _, _)| (*s, *e)).collect(),
+        );
         let video_intervals = credit_minimum_connection_minute(
             qualified
                 .iter()
-                .filter(|(_, _, app)| video_apps.contains(app))
-                .map(|(s, e, _)| (*s, *e))
+                .filter(|(_, _, app, _)| video_apps.contains(app))
+                .map(|(s, e, _, _)| (*s, *e))
                 .collect(),
         );
         let game_intervals = credit_minimum_connection_minute(
             qualified
                 .iter()
-                .filter(|(_, _, app)| game_apps.contains(app))
-                .map(|(s, e, _)| (*s, *e))
+                .filter(|(_, _, app, _)| game_apps.contains(app))
+                .map(|(s, e, _, _)| (*s, *e))
                 .collect(),
         );
         // 通过门槛后，原有断档补算与区间并集逻辑保持不变。
@@ -432,45 +488,108 @@ mod tests {
         assert_eq!(union_seconds(merged), 180);
     }
 
+    const BASE: i64 = 1_700_000_040;
+
+    fn minute_at(offset_min: i64) -> i64 {
+        BASE + offset_min * 60
+    }
+
+    fn quiet_set(minutes: &[i64]) -> HashSet<i64> {
+        minutes.iter().map(|n| minute_at(*n)).collect()
+    }
+
     #[test]
-    fn short_isolated_session_is_removed() {
-        let filtered = filter_isolated_short_intervals(vec![(0, 10, "xiaohongshu".into())], 300);
+    fn isolated_micro_session_is_removed() {
+        // 今天 13:03 的锁屏样本：两条连接、共约 6.5 KB，前后五分钟无目标流量。
+        let intervals = vec![
+            (BASE, BASE, "xiaohongshu".into(), 2588),
+            (BASE, BASE + 1, "xiaohongshu".into(), 3936),
+        ];
+        let quiet = quiet_set(&[]);
+        let filtered = filter_isolated_micro_sessions(
+            intervals,
+            300,
+            minute_at(6),
+            Some(minute_at(5)),
+            Some(&quiet),
+        );
         assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn micro_session_kept_when_post_window_has_traffic() {
+        // 后五分钟出现目标流量：属于同一次使用，从首条开始计。
+        let intervals = vec![(BASE, BASE + 1, "xiaohongshu".into(), 6524)];
+        let quiet = quiet_set(&[3]);
+        let filtered = filter_isolated_micro_sessions(
+            intervals,
+            300,
+            minute_at(6),
+            Some(minute_at(5)),
+            Some(&quiet),
+        );
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn micro_session_kept_when_pre_window_has_traffic() {
+        let intervals = vec![(BASE, BASE + 1, "xiaohongshu".into(), 6524)];
+        let quiet = quiet_set(&[-2]);
+        let filtered = filter_isolated_micro_sessions(
+            intervals,
+            300,
+            minute_at(6),
+            Some(minute_at(5)),
+            Some(&quiet),
+        );
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn micro_session_kept_without_fresh_minute_data() {
+        // 分钟表不可用/过期时不能证明“前后安静”，按原口径计时。
+        let intervals = vec![(BASE, BASE + 1, "xiaohongshu".into(), 6524)];
+        let quiet = quiet_set(&[]);
+        let filtered = filter_isolated_micro_sessions(intervals, 300, minute_at(6), None, Some(&quiet));
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn longer_or_larger_sessions_are_kept() {
+        let quiet = quiet_set(&[]);
+        let longer = vec![(BASE, BASE + 10, "xiaohongshu".into(), 1000)];
+        assert_eq!(
+            filter_isolated_micro_sessions(longer, 300, minute_at(20), Some(minute_at(19)), Some(&quiet))
+                .len(),
+            1
+        );
+        let larger = vec![(BASE, BASE + 1, "xiaohongshu".into(), 20 * 1024)];
+        assert_eq!(
+            filter_isolated_micro_sessions(larger, 300, minute_at(20), Some(minute_at(19)), Some(&quiet))
+                .len(),
+            1
+        );
     }
 
     #[test]
     fn continuous_session_uses_real_time_to_qualify_then_keeps_gap_credit() {
         let intervals = vec![
-            (0, 30, "xiaohongshu".into()),
-            (120, 150, "xiaohongshu".into()),
+            (BASE, BASE + 30, "xiaohongshu".into(), 5000),
+            (BASE + 120, BASE + 150, "xiaohongshu".into(), 5000),
         ];
-        let filtered = filter_isolated_short_intervals(intervals.clone(), 300);
+        let quiet = quiet_set(&[]);
+        let filtered = filter_isolated_micro_sessions(
+            intervals.clone(),
+            300,
+            minute_at(20),
+            Some(minute_at(19)),
+            Some(&quiet),
+        );
         assert_eq!(filtered, intervals);
-        let credited =
-            credit_minimum_connection_minute(filtered.iter().map(|(s, e, _)| (*s, *e)).collect());
+        let credited = credit_minimum_connection_minute(
+            filtered.iter().map(|(s, e, _, _)| (*s, *e)).collect(),
+        );
         assert_eq!(union_seconds(merge_with_gap(credited, 300)), 180);
-    }
-
-    #[test]
-    fn multiple_short_connections_across_apps_are_kept() {
-        let intervals = vec![(0, 10, "xiaohongshu".into()), (200, 230, "game_egg".into())];
-        assert_eq!(
-            filter_isolated_short_intervals(intervals.clone(), 300),
-            intervals
-        );
-    }
-
-    #[test]
-    fn low_volume_is_not_part_of_session_filter() {
-        // 过滤器只收到时间区间，不读取流量字节；低流量的持续使用仍通过。
-        let intervals = vec![
-            (0, 35, "xiaohongshu".into()),
-            (40, 65, "xiaohongshu".into()),
-        ];
-        assert_eq!(
-            filter_isolated_short_intervals(intervals.clone(), 300),
-            intervals
-        );
     }
 
     #[test]
