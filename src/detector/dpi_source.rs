@@ -24,8 +24,8 @@ const REFRESH_SEC: u64 = 30;
 /// DPI 分钟表最长允许滞后；超过则不根据静默窗口过滤，避免采集停滞时少算。
 const TRAFFIC_MINUTE_MAX_LAG_SEC: i64 = 180;
 /// 只把非常短、非常小且被完整静默窗口包围的目标 App 会话视为后台微流量。
-const MICRO_SESSION_MAX_SPAN_SEC: i64 = 5;
-const MICRO_SESSION_MAX_BYTES: i64 = 10 * 1024;
+const MICRO_SESSION_MAX_SPAN_SEC: i64 = 10;
+const MICRO_SESSION_MAX_BYTES: i64 = 64 * 1024;
 const QUIET_WINDOW_MINUTES: i64 = 5;
 
 type AppInterval = (i64, i64, String, i64); // start, end, app_id, total_bytes
@@ -557,13 +557,13 @@ mod tests {
     #[test]
     fn longer_or_larger_sessions_are_kept() {
         let quiet = quiet_set(&[]);
-        let longer = vec![(BASE, BASE + 10, "xiaohongshu".into(), 1000)];
+        let longer = vec![(BASE, BASE + 11, "xiaohongshu".into(), 1000)];
         assert_eq!(
             filter_isolated_micro_sessions(longer, 300, minute_at(20), Some(minute_at(19)), Some(&quiet))
                 .len(),
             1
         );
-        let larger = vec![(BASE, BASE + 1, "xiaohongshu".into(), 20 * 1024)];
+        let larger = vec![(BASE, BASE + 1, "xiaohongshu".into(), 65 * 1024)];
         assert_eq!(
             filter_isolated_micro_sessions(larger, 300, minute_at(20), Some(minute_at(19)), Some(&quiet))
                 .len(),
